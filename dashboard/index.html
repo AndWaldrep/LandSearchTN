@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>East TN Land Finder</title>
+  <meta name="description" content="Retirement build-site finder for Loudon, Blount and north Monroe counties, Tennessee: LiDAR slope, Smokies views, noise, drive times, ER access, sinkholes, flood and septic soils.">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <button class="icon-btn only-mobile" id="btn-filters" aria-label="Show filters">☰</button>
+    <div class="brand">
+      <h1>East TN Land Finder</h1>
+      <span class="sub">Loudon · Blount · N. Monroe — vacant parcels for a retirement build</span>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="top-actions">
+      <label class="sel">
+        <span>Preset</span>
+        <select id="preset"></select>
+      </label>
+      <button class="btn" id="btn-saved">Saved searches</button>
+      <button class="btn" id="btn-share" title="Copy a link with the current filters">Share link</button>
+      <div class="dropdown">
+        <button class="btn" id="btn-export">Export ▾</button>
+        <div class="menu" id="export-menu" hidden>
+          <button data-exp="csv">CSV: filtered parcels</button>
+          <button data-exp="csv-star">CSV: shortlist</button>
+          <button data-exp="geojson">GeoJSON: filtered parcels</button>
+          <button data-exp="ids">Copy parcel IDs</button>
+        </div>
+      </div>
+      <button class="icon-btn" id="btn-theme" aria-label="Toggle dark mode" title="Toggle dark mode"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+      <button class="icon-btn" id="btn-help" aria-label="About the data" title="About the data">?</button>
+    </div>
+  </header>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">
+      <input type="search" id="q" placeholder="Search address, owner, subdivision, parcel ID…" autocomplete="off">
+      <div class="side-tools">
+        <input type="search" id="filter-find" placeholder="Find a filter…" autocomplete="off">
+        <button class="btn small" id="btn-reset">Reset all</button>
+        <button class="icon-btn small only-mobile" id="btn-close-side" aria-label="Close filters">✕</button>
+      </div>
+      <div class="chips" id="active-chips"></div>
+    </div>
+    <div class="side-scroll">
+      <section class="panel" id="panel-weights">
+        <button class="panel-h" aria-expanded="true"><span>Scoring weights</span><span class="caret">▾</span></button>
+        <div class="panel-b">
+          <p class="hint">The overall score (0–100) is the weighted average of seven sub-scores. Set a weight to 0 to ignore that category.</p>
+          <div id="weights"></div>
+          <div class="row-ctl">
+            <label>Minimum overall score <output id="minscore-out">0</output></label>
+            <input type="range" id="minscore" min="0" max="100" step="1" value="0">
+          </div>
+        </div>
+      </section>
+      <section class="panel" id="panel-special">
+        <button class="panel-h" aria-expanded="true"><span>Where &amp; my lists</span><span class="caret">▾</span></button>
+        <div class="panel-b">
+          <div class="seg-row">
+            <span class="lbl">Area</span>
+            <div class="seg" id="spatial-mode">
+              <button data-v="none" class="on">Everywhere</button>
+              <button data-v="view">Map view</button>
+              <button data-v="radius">Radius</button>
+            </div>
+          </div>
+          <div id="radius-ctl" hidden>
+            <p class="hint">Click the map to set the center.</p>
+            <label>Radius <output id="radius-out">5</output> mi</label>
+            <input type="range" id="radius" min="1" max="30" step="0.5" value="5">
+          </div>
+          <label class="check"><input type="checkbox" id="only-star"> Shortlist only (★)</label>
+          <label class="check"><input type="checkbox" id="only-listed"> Marked as listed for sale only</label>
+          <label class="check"><input type="checkbox" id="show-hidden"> Include parcels I've hidden</label>
+          <button class="btn small" id="btn-import">Paste listing parcel IDs / addresses…</button>
+        </div>
+      </section>
+      <div id="filter-groups"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="map-ctl">
+        <label class="sel">
+          <span>Color by</span>
+          <select id="color-by"></select>
+        </label>
+        <div class="legend" id="legend"></div>
+      </div>
+      <aside class="detail" id="detail" hidden></aside>
+    </div>
+    <div class="table-wrap" id="table-wrap">
+      <div class="table-bar">
+        <strong id="table-title">Results</strong>
+        <span class="muted" id="table-sub"></span>
+        <span class="spacer"></span>
+        <button class="btn small" id="btn-compare" disabled>Compare (0)</button>
+        <button class="btn small" id="btn-cols">Columns</button>
+        <button class="icon-btn small" id="btn-table-size" title="Resize table">⇕</button>
+      </div>
+      <div class="table-scroll"><table id="results"><thead></thead><tbody></tbody></table></div>
+      <div class="table-foot"><button class="btn small" id="btn-more">Show more</button></div>
+    </div>
+  </main>
+</div>
+
+<dialog id="dlg"><form method="dialog" class="dlg-inner"><div id="dlg-body"></div><div class="dlg-foot"><button class="btn" value="close">Close</button></div></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="loading"><div class="spinner"></div><p>Loading 12,000+ parcels…</p></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
