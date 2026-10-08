@@ -310,7 +310,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
   .main { grid-template-rows: 62vh auto; }
   .table-wrap { max-height: 70vh; }
   .map-ctl { left: 50px; right: 10px; max-width: none; }
-  .detail { position: fixed; top: auto; height: 75vh; width: 100%; border-left: 0; border-top: 1px solid var(--border); z-index: 3500; }
+  .detail { position: fixed; top: auto; height: 55vh; width: 100%; border-left: 0; border-top: 1px solid var(--border); z-index: 3500; }
 }
+
+/* map highlight for the selected / hovered parcel */
+.pulse-ring { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #d03b3b; box-shadow: 0 0 0 2px #fff, inset 0 0 0 2px #fff;
+  animation: pulse-ring 1.6s ease-out infinite; }
+.hover-ring { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--accent); box-shadow: 0 0 0 2px #fff; }
+@keyframes pulse-ring { 0% { transform: scale(.6); opacity: 1; } 70% { transform: scale(1.35); opacity: .35; } 100% { transform: scale(.6); opacity: 1; } }
+tbody tr:hover td { background: var(--accent-wash); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

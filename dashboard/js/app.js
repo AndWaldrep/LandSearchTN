@@ -651,12 +651,13 @@ function buildLocalLayers(base, over) {
 }
 function restyleVectors() { for (const l of vecLayers) l.setStyle(vecStyle); }
 
-async function loadGeom() {
-  if (geomLoading) return;
-  geomLoading = true;
-  toast('Loading parcel outlines…');
-  GEOM = await fetch('data/geom.json').then(r => r.json());
-  parcelLayer.redraw();
+let geomPromise = null;
+function loadGeom() {
+  if (!geomPromise) {
+    geomLoading = true;
+    geomPromise = fetch('data/geom.json').then(r => r.json()).then(g => { GEOM = g; parcelLayer.redraw(); return g; });
+  }
+  return geomPromise;
 }
 async function loadHorizon() {
   if (HORIZON) return HORIZON;
@@ -687,9 +688,58 @@ function drawRadius() {
 function select(i, fly = true) {
   selected = i;
   renderDetail(i);
-  if (fly) map.flyTo([COLS.lat[i], COLS.lon[i]], Math.max(map.getZoom(), 15), { duration: 0.6 });
+  highlight(i);
+  if (fly) focusParcel(i);
   parcelLayer.redraw();
   $$('#results tbody tr').forEach(tr => tr.classList.toggle('is-sel', +tr.dataset.i === i));
+}
+
+// Selected parcel: bold outline + pulsing ring at the house site, drawn above everything else.
+let hlLayer = null, hoverLayer = null;
+const ringIcon = cls => L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
+function parcelLatLngs(i) { return GEOM && GEOM[i] && GEOM[i].length ? GEOM[i] : null; }
+function highlight(i) {
+  if (!map.getPane('highlight')) { map.createPane('highlight').style.zIndex = 640; }
+  if (hlLayer) hlLayer.remove();
+  hlLayer = L.layerGroup().addTo(map);
+  const draw = () => {
+    if (selected !== i) return;
+    hlLayer.clearLayers();
+    const rings = parcelLatLngs(i);
+    if (rings) {
+      hlLayer.addLayer(L.polygon(rings, { pane: 'highlight', color: '#ffffff', weight: 8, opacity: 0.95, fill: false, interactive: false }));
+      hlLayer.addLayer(L.polygon(rings, { pane: 'highlight', color: '#d03b3b', weight: 3.5, fillColor: '#d03b3b', fillOpacity: 0.18, interactive: false }));
+    }
+    hlLayer.addLayer(L.marker([COLS.lat[i], COLS.lon[i]], { icon: ringIcon('pulse-ring'), pane: 'highlight', interactive: false, keyboard: false }));
+  };
+  draw();
+  if (!GEOM) loadGeom().then(draw);
+}
+function clearHighlight() { if (hlLayer) { hlLayer.remove(); hlLayer = null; } }
+function hoverHighlight(i) {
+  if (hoverLayer) { hoverLayer.remove(); hoverLayer = null; }
+  if (i == null || i === selected) return;
+  hoverLayer = L.marker([COLS.lat[i], COLS.lon[i]], { icon: ringIcon('hover-ring'), pane: map.getPane('highlight') ? 'highlight' : 'markerPane', interactive: false, keyboard: false }).addTo(map);
+}
+
+// Fly so the parcel lands in the part of the map the detail panel and overlays leave visible.
+async function focusParcel(i) {
+  if (isMobile()) $('.map-wrap').scrollIntoView({ behavior: 'auto', block: 'start' });
+  if (!GEOM) { try { await loadGeom(); } catch { /* fall back to the house-site point */ } }
+  if (selected !== i) return;
+  const rings = parcelLatLngs(i);
+  const bounds = rings ? L.latLngBounds(rings.flat()) : L.latLng(COLS.lat[i], COLS.lon[i]).toBounds(250);
+  // keep the parcel clear of the detail panel / bottom sheet and the colour-by box
+  const m = map.getContainer().getBoundingClientRect();
+  const det = DOM.detail && !DOM.detail.hidden ? DOM.detail.getBoundingClientRect() : null;
+  const ctl = $('#map-ctl').getBoundingClientRect();
+  let right = 30, bottom = 30;
+  const top = Math.min(Math.max(30, ctl.bottom - m.top + 10), m.height * 0.35);
+  if (det && det.left > m.left + 50 && det.top <= m.top + 5) right = Math.max(right, m.right - det.left + 30);   // side panel
+  else if (det) bottom = Math.max(bottom, m.bottom - det.top + 20);                                             // bottom sheet
+  bottom = Math.min(bottom, m.height - top - 80);
+  right = Math.min(right, m.width - 110);
+  map.flyToBounds(bounds, { paddingTopLeft: [30, top], paddingBottomRight: [right, bottom], maxZoom: 17, duration: 0.8 });
 }
 
 function links(i) {
@@ -723,7 +773,7 @@ async function renderDetail(i) {
   if (c('flood_pct') > 0) badge(`${Math.round(c('flood_pct'))}% in flood zone`, c('flood_pct') > 20 ? 'bad' : 'warn');
   if (c('under_approach')) badge('Under TYS flight path', 'bad');
   if (c('noise_db') >= 58) badge(`Noisy (~${Math.round(c('noise_db'))} dBA)`, 'warn');
-  if (c('bldg_fp') > 0) badge(`${c('bldg_fp')} structure(s) detected`, 'warn');
+  if (c('bldg_fp') > 0 && !c('synthetic')) badge(`${c('bldg_fp')} structure(s) detected`, 'warn');
   if (c('owner_changed')) badge('Sold since 2023 snapshot', 'warn');
   if (c('synthetic')) badge('Approximate area: no exact parcel match', 'warn');
   if (c('greenbelt')) badge('Greenbelt', 'warn');
@@ -751,7 +801,7 @@ async function renderDetail(i) {
       <button class="btn small ${user.stars.has(i) ? 'on' : ''}" data-act="star">${user.stars.has(i) ? '★ Shortlisted' : '☆ Shortlist'}</button>
       <button class="btn small" data-act="hide">${user.hidden.has(i) ? 'Unhide' : 'Hide'}</button>
       <button class="btn small" data-act="cmp">${compareSet.has(i) ? 'Remove from compare' : 'Add to compare'}</button>
-      <button class="btn small" data-act="zoom">Zoom to</button>
+      <button class="btn small" data-act="zoom">Show on map</button>
     </div>
     <div class="kv-group"><h3>Skyline from house site (6 m eye height, bare earth)</h3><div id="skyline"></div></div>
     <div class="kv-group"><h3>Research links</h3><div class="links">${links(i)}</div></div>
@@ -762,13 +812,13 @@ async function renderDetail(i) {
       <textarea placeholder="Notes (saved in this browser)" data-note>${esc(user.notes[i] || '')}</textarea></div>
     ${kvGroups}
     <p class="muted" style="margin-top:14px">Data year: ${c('data_year') || '—'}. Values are screening estimates; verify on site and with the county.</p>`;
-  d.querySelector('.close').onclick = () => { d.hidden = true; selected = null; parcelLayer.redraw(); };
+  d.querySelector('.close').onclick = () => { d.hidden = true; selected = null; clearHighlight(); parcelLayer.redraw(); };
   d.querySelector('.actions').onclick = e => {
     const a = e.target.dataset.act; if (!a) return;
     if (a === 'star') toggleStar(i);
     if (a === 'hide') { user.hidden.has(i) ? user.hidden.delete(i) : user.hidden.add(i); saveUser(); recompute({ keepTable: true }); }
     if (a === 'cmp') { compareSet.has(i) ? compareSet.delete(i) : compareSet.add(i); renderTable(); }
-    if (a === 'zoom') map.flyTo([COLS.lat[i], COLS.lon[i]], 16);
+    if (a === 'zoom') focusParcel(i);
     renderDetail(i);
   };
   d.querySelector('[data-note]').oninput = e => { user.notes[i] = e.target.value; if (!e.target.value) delete user.notes[i]; saveUser(); };
@@ -1115,6 +1165,8 @@ function wire() {
     sortRows(); renderTable(); updateHash();
   });
   const tbody = $('#results tbody');
+  tbody.addEventListener('mouseover', e => { const tr = e.target.closest('tr'); if (tr) hoverHighlight(+tr.dataset.i); });
+  tbody.addEventListener('mouseleave', () => hoverHighlight(null));
   tbody.addEventListener('click', e => {
     if (e.target.closest('a')) return;
     if (e.target.dataset.star) { toggleStar(+e.target.dataset.star); return; }
@@ -1123,7 +1175,7 @@ function wire() {
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && isMobile() && sidebarOpen()) { setSidebar(false); return; }
-    if (e.key === 'Escape' && !DOM.detail.hidden && !$('#dlg').open) { DOM.detail.hidden = true; selected = null; parcelLayer.redraw(); }
+    if (e.key === 'Escape' && !DOM.detail.hidden && !$('#dlg').open) { DOM.detail.hidden = true; selected = null; clearHighlight(); parcelLayer.redraw(); }
   });
 }
 
