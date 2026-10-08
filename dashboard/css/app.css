@@ -22,6 +22,8 @@
   --star: #c98500;
   --shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
   --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
+  --map-water: #a9c8de; --map-road-major: #b5651d; --map-road: #8a8578; --map-county: #6e6a60; --map-city: #4a3aa7;
+  --map-flood: #2a78d6; --map-wetland: #1baf7a; --relief-filter: none;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -31,6 +33,7 @@
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #3987e5; --accent-ink: #86b6ef;
     --accent-wash: rgba(57, 135, 229, 0.16); --hist-all: #383835; --hist-on: #3987e5; --good-ink: #0ca30c; --star: #eda100;
     --shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+    --map-water: #23384a; --map-road-major: #d9a066; --map-road: #77736a; --map-county: #a8a397; --map-city: #9085e9; --map-flood: #3987e5; --map-wetland: #199e70; --relief-filter: brightness(.42) contrast(1.15) saturate(.5);
   }
 }
 :root[data-theme="dark"] {
@@ -39,10 +42,12 @@
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #3987e5; --accent-ink: #86b6ef;
   --accent-wash: rgba(57, 135, 229, 0.16); --hist-all: #383835; --hist-on: #3987e5; --good-ink: #0ca30c; --star: #eda100;
   --shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  --map-water: #23384a; --map-road-major: #d9a066; --map-road: #77736a; --map-county: #a8a397; --map-city: #9085e9; --map-flood: #3987e5; --map-wetland: #199e70; --relief-filter: brightness(.42) contrast(1.15) saturate(.5);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+.leaflet-relief-pane { filter: var(--relief-filter); }
 body { background: var(--page); color: var(--ink); font: 13px/1.4 var(--font); overflow: hidden; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent-ink); }
@@ -50,7 +55,7 @@ a { color: var(--accent-ink); }
 .hint { color: var(--ink-2); font-size: 12px; margin: 0 0 8px; }
 [hidden] { display: none !important; }
 
-#app { display: grid; grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100vh; }
+#app { display: grid; grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; }
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 8px 14px; background: var(--surface);
   border-bottom: 1px solid var(--border); min-width: 0; }
 .brand h1 { font-size: 16px; margin: 0; letter-spacing: -0.01em; }

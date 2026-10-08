@@ -33,6 +33,7 @@ let selected = null;
 let compareSet = new Set();
 let map, parcelLayer, radiusCircle, centerMarker;
 const DOM = {};
+const OFFLINE = !!window.LSTN_OFFLINE; // sandboxed host: no third-party tiles, downloads or URL state
 const ctxScore = {};
 
 const user = { stars: new Set(LS.get('stars', [])), hidden: new Set(LS.get('hidden', [])), notes: LS.get('notes', {}), listed: LS.get('listed', {}) };
@@ -519,21 +520,28 @@ function renderLegend() {
 }
 
 function initMap() {
-  map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([35.73, -84.08], 10);
-  const topo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS The National Map' });
-  const imgTopo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'USGS The National Map' });
-  const esriImg = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Esri, Maxar, Earthstar Geographics' });
-  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' });
-  const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' });
-  const isDark = document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
-  (isDark ? dark : topo).addTo(map);
+  map = L.map('map', { zoomControl: true, preferCanvas: true, minZoom: OFFLINE ? 9 : 0, maxZoom: 18 }).setView([35.73, -84.08], 10);
+  if (OFFLINE) map.setMaxBounds([[35.30, -84.75], [36.15, -83.20]]);
+  const base = {}, over = {};
+  if (OFFLINE) buildLocalLayers(base, over);
+  else {
+    const topo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS The National Map' });
+    const imgTopo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'USGS The National Map' });
+    const esriImg = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Esri, Maxar, Earthstar Geographics' });
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' });
+    const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' });
+    const isDark = document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    (isDark ? dark : topo).addTo(map);
 
-  const IMG = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage';
-  const hill = new ArcGISExportLayer(IMG, { format: 'jpgpng', renderingRule: JSON.stringify({ rasterFunction: 'Hillshade Multidirectional' }) }, { opacity: 0.45, attribution: 'USGS 3DEP LiDAR' });
-  const slope = new ArcGISExportLayer(IMG, { format: 'png', renderingRule: JSON.stringify({ rasterFunction: 'Slope Map' }) }, { opacity: 0.5, attribution: 'USGS 3DEP' });
-  const contours = new ArcGISExportLayer(IMG, { format: 'png', renderingRule: JSON.stringify({ rasterFunction: 'Contour 25' }) }, { opacity: 0.8, minZoom: 13 });
-  const flood = new ArcGISExportLayer('https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/export', { format: 'png32', layers: 'show:28' }, { opacity: 0.6, attribution: 'FEMA NFHL' });
-  const wet = new ArcGISExportLayer('https://tnmap.tn.gov/arcgis/rest/services/ENVIRONMENTAL/NATIONAL_WETLANDS_INVENTORY/MapServer/export', { format: 'png32', layers: 'show:0' }, { opacity: 0.6, minZoom: 12 });
+    const IMG = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage';
+    const hill = new ArcGISExportLayer(IMG, { format: 'jpgpng', renderingRule: JSON.stringify({ rasterFunction: 'Hillshade Multidirectional' }) }, { opacity: 0.45, attribution: 'USGS 3DEP LiDAR' });
+    const slope = new ArcGISExportLayer(IMG, { format: 'png', renderingRule: JSON.stringify({ rasterFunction: 'Slope Map' }) }, { opacity: 0.5, attribution: 'USGS 3DEP' });
+    const contours = new ArcGISExportLayer(IMG, { format: 'png', renderingRule: JSON.stringify({ rasterFunction: 'Contour 25' }) }, { opacity: 0.8, minZoom: 13 });
+    const flood = new ArcGISExportLayer('https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/export', { format: 'png32', layers: 'show:28' }, { opacity: 0.6, attribution: 'FEMA NFHL' });
+    const wet = new ArcGISExportLayer('https://tnmap.tn.gov/arcgis/rest/services/ENVIRONMENTAL/NATIONAL_WETLANDS_INVENTORY/MapServer/export', { format: 'png32', layers: 'show:0' }, { opacity: 0.6, minZoom: 12 });
+    Object.assign(base, { 'USGS Topo': topo, 'USGS Imagery + Topo': imgTopo, 'Esri Satellite': esriImg, 'OpenStreetMap': osm, 'Dark': dark });
+    Object.assign(over, { 'LiDAR hillshade': hill, 'Slope (LiDAR)': slope, 'Contours (25 ft)': contours, 'FEMA flood zones': flood, 'NWI wetlands (z12+)': wet });
+  }
 
   const hosp = L.layerGroup(LAYERS.hospitals.map(h => L.marker([h.lat, h.lon], { icon: L.divIcon({ className: '', html: `<div style="background:#d03b3b;color:#fff;border-radius:4px;font-weight:700;width:18px;height:18px;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)">H</div>`, iconSize: [18, 18] }) })
     .bindTooltip(`${esc(h.name)}${h.tags.includes('trauma') ? ' — Level I trauma' : ''}`))).addTo(map);
@@ -543,9 +551,8 @@ function initMap() {
     .bindTooltip(`${t.kind === 'crest' ? 'Smokies crest' : 'Foothill'} view target · ${Math.round(t.z * 3.2808)} ft`)));
   const groc = L.layerGroup(LAYERS.groceries.map(g => L.circleMarker([g.lat, g.lon], { radius: 3, color: '#1baf7a', weight: 1, fillOpacity: 0.9 }).bindTooltip(esc(g.name))));
 
-  L.control.layers({ 'USGS Topo': topo, 'USGS Imagery + Topo': imgTopo, 'Esri Satellite': esriImg, 'OpenStreetMap': osm, 'Dark': dark },
-    { 'LiDAR hillshade': hill, 'Slope (LiDAR)': slope, 'Contours (25 ft)': contours, 'FEMA flood zones': flood, 'NWI wetlands (z12+)': wet,
-      'Hospitals': hosp, 'Towns': towns, 'Grocery stores': groc, 'Mountain view targets': peaks }, { position: 'topright', collapsed: true }).addTo(map);
+  L.control.layers(base, { ...over, 'Hospitals': hosp, 'Towns': towns, 'Grocery stores': groc, 'Mountain view targets': peaks },
+    { position: 'topright', collapsed: true }).addTo(map);
   L.control.scale({ imperial: true, metric: false }).addTo(map);
 
   parcelLayer = new ParcelCanvas({
@@ -578,6 +585,56 @@ function initMap() {
   map.on('moveend', () => { if (state.spatial.mode === 'view') debounced(); });
 }
 
+// Self-contained basemap: LiDAR shaded relief images + vector roads/water/boundaries built by s85_basemap.py.
+const vecLayers = [];
+function vecStyle(f) {
+  const p = f.properties, k = p.kind;
+  if (k === 'water') return { stroke: false, fill: true, fillColor: css('--map-water'), fillOpacity: 1 };
+  if (k === 'river') return { color: css('--map-water'), weight: 1.5 };
+  if (k === 'flood') return { stroke: false, fill: true, fillColor: css('--map-flood'), fillOpacity: 0.35 };
+  if (k === 'wetland') return { color: css('--map-wetland'), weight: 0.8, fill: true, fillColor: css('--map-wetland'), fillOpacity: 0.35 };
+  if (k === 'county') return { color: css('--map-county'), weight: 1.6, dashArray: '8 4 2 4', fill: false };
+  if (k === 'city') return { color: css('--map-city'), weight: 1.2, dashArray: '3 3', fill: false };
+  if (k === 'rail') return { color: css('--map-road'), weight: 1, dashArray: '4 3' };
+  const w = { motorway: 3.2, trunk: 2.6, primary: 2.2, secondary: 1.6, tertiary: 1.1, local: 1 }[p.cls] || 1;
+  return { color: css(['motorway', 'trunk', 'primary'].includes(p.cls) ? '--map-road-major' : '--map-road'), weight: w, opacity: 0.9 };
+}
+function buildLocalLayers(base, over) {
+  map.createPane('relief').style.zIndex = 150;
+  map.createPane('vectors').style.zIndex = 350;
+  map.createPane('hazards').style.zIndex = 360;
+  const rVec = L.canvas({ pane: 'vectors' }), rHaz = L.canvas({ pane: 'hazards' });
+  const relief = L.layerGroup().addTo(map);
+  const slope = L.layerGroup();
+  const roads = L.layerGroup().addTo(map), local = L.layerGroup(), bounds = L.layerGroup().addTo(map);
+  const flood = L.layerGroup(), wet = L.layerGroup();
+  Object.assign(base, { 'Shaded relief (LiDAR)': relief, 'Plain': L.layerGroup() });
+  Object.assign(over, { 'Roads & water': roads, 'City & county lines': bounds, 'Slope classes (LiDAR)': slope, 'FEMA flood zones': flood, 'NWI wetlands': wet });
+  fetch('data/basemap/meta.json').then(r => r.json()).then(m => {
+    const att = 'USGS 3DEP LiDAR';
+    relief.addLayer(L.imageOverlay('data/basemap/relief_region.jpg', m.relief_region, { pane: 'relief', attribution: att }));
+    relief.addLayer(L.imageOverlay('data/basemap/relief_study.jpg', m.relief_study, { pane: 'relief' }));
+    slope.addLayer(L.imageOverlay('data/basemap/slope.png', m.slope, { pane: 'hazards', opacity: 0.85 }));
+  });
+  fetch('data/basemap/vectors.json').then(r => r.json()).then(fc => {
+    const pick = fn => ({ type: 'FeatureCollection', features: fc.features.filter(fn) });
+    const mk = (fn, r) => { const l = L.geoJSON(pick(fn), { style: vecStyle, renderer: r, interactive: false, attribution: 'Overture Maps / OpenStreetMap' }); vecLayers.push(l); return l; };
+    roads.addLayer(mk(f => ['water', 'river'].includes(f.properties.kind), rVec));
+    roads.addLayer(mk(f => ['road', 'rail'].includes(f.properties.kind) && f.properties.cls !== 'local', rVec));
+    local.addLayer(mk(f => f.properties.cls === 'local', rVec));
+    bounds.addLayer(mk(f => ['city', 'county'].includes(f.properties.kind), rVec));
+    const syncLocal = () => { const on = map.hasLayer(roads) && map.getZoom() >= 13; if (on && !map.hasLayer(local)) local.addTo(map); if (!on && map.hasLayer(local)) local.remove(); };
+    map.on('zoomend overlayadd overlayremove', syncLocal); syncLocal();
+  });
+  fetch('data/basemap/overlays.json').then(r => r.json()).then(fc => {
+    for (const [grp, kind] of [[flood, 'flood'], [wet, 'wetland']]) {
+      const l = L.geoJSON({ type: 'FeatureCollection', features: fc.features.filter(f => f.properties.kind === kind) }, { style: vecStyle, renderer: rHaz, interactive: false, attribution: kind === 'flood' ? 'FEMA NFHL' : 'USFWS NWI' });
+      vecLayers.push(l); grp.addLayer(l);
+    }
+  });
+}
+function restyleVectors() { for (const l of vecLayers) l.setStyle(vecStyle); }
+
 async function loadGeom() {
   if (geomLoading) return;
   geomLoading = true;
@@ -587,7 +644,13 @@ async function loadGeom() {
 }
 async function loadHorizon() {
   if (HORIZON) return HORIZON;
-  const buf = await fetch('data/horizon.bin').then(r => r.arrayBuffer());
+  let buf;
+  if (OFFLINE) { // sandboxed hosts only serve text types: the int16 array ships base64-encoded
+    const b = atob((await fetch('data/horizon.b64.txt').then(r => r.text())).trim());
+    const u8 = new Uint8Array(b.length);
+    for (let k = 0; k < b.length; k++) u8[k] = b.charCodeAt(k);
+    buf = u8.buffer;
+  } else buf = await fetch('data/horizon.bin').then(r => r.arrayBuffer());
   HORIZON = new Int16Array(buf);
   return HORIZON;
 }
@@ -777,15 +840,18 @@ function deserialize(o) {
 const b64 = { enc: o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
   dec: s => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))))) };
 let hashT;
-function updateHash() { clearTimeout(hashT); hashT = setTimeout(() => { try { history.replaceState(null, '', '#s=' + b64.enc(serialize())); } catch { /* ignore */ } }, 300); }
+function updateHash() { if (OFFLINE) return; clearTimeout(hashT); hashT = setTimeout(() => { try { history.replaceState(null, '', '#s=' + b64.enc(serialize())); } catch { /* ignore */ } }, 300); }
 
 function savedDialog() {
   const saved = LS.get('saved', {});
   const names = Object.keys(saved);
   openDialog(`<h2>Saved searches</h2>
-    <p class="hint">Saved in this browser. Use “Share link” to send a search to someone else.</p>
+    <p class="hint">Saved in this browser. To send a search to someone, copy it as a code; they paste it here.</p>
     <div style="display:flex;gap:6px;margin-bottom:10px"><input id="save-name" placeholder="Name this search" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--page)"><button class="btn primary" type="button" id="save-go">Save current</button></div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" type="button" id="code-copy">Copy current search as code</button><input id="code-in" placeholder="…or paste a search code" style="flex:1;min-width:160px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--page)"><button class="btn" type="button" id="code-load">Load code</button></div>
     ${names.length ? `<table class="cmp"><tbody>${names.map(n => `<tr><td>${esc(n)}</td><td><button class="btn small" type="button" data-load="${esc(n)}">Load</button> <button class="btn small" type="button" data-del="${esc(n)}">Delete</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No saved searches yet.</p>'}`);
+  $('#code-copy').onclick = () => { const c = b64.enc(serialize()); navigator.clipboard.writeText(c).then(() => toast('Search code copied')).catch(() => { $('#code-in').value = c; $('#code-in').select(); }); };
+  $('#code-load').onclick = () => { try { deserialize(b64.dec($('#code-in').value.trim())); syncControls(); recompute(); $('#dlg').close(); toast('Search loaded'); } catch { toast('That code could not be read'); } };
   $('#save-go').onclick = () => { const n = $('#save-name').value.trim(); if (!n) return; saved[n] = serialize(); LS.set('saved', saved); toast('Saved'); savedDialog(); };
   $('#dlg-body').onclick = e => {
     if (e.target.dataset.load) { deserialize(saved[e.target.dataset.load]); syncControls(); recompute(); $('#dlg').close(); }
@@ -874,7 +940,23 @@ function helpDialog() {
 // ---------------------------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------------------------
-function download(name, text, type) {
+async function download(name, text, type) {
+  if (OFFLINE) {
+    // sandboxed host: hand the file to the viewer's save prompt when the host offers one
+    const dl = await window.claude?.use?.('downloads').catch(() => null);
+    if (dl) {
+      try { await dl.save({ filename: name.replace(/\.geojson$/, '.json'), data: new Blob([text]) }); toast('Saved'); return; }
+      catch (err) { if (err?.code === 'declined' || err?.code === 'rate_limited') return; }
+    }
+    // no save prompt available: show the text with a copy button instead
+    const big = text.length > 3e6;
+    openDialog(`<h2>${esc(name)}</h2><p class="hint">Saving files isn't available here. Copy the text and save it as <code>${esc(name)}</code>${big ? ' (large: the preview below is truncated, but Copy takes everything)' : ''}.</p>
+      <textarea id="exp-text" readonly style="min-height:260px">${esc(big ? text.slice(0, 200000) + '\n…' : text)}</textarea>
+      <div class="dlg-foot" style="justify-content:flex-start"><button class="btn primary" type="button" id="exp-copy">Copy to clipboard</button><span class="muted" id="exp-res"></span></div>`);
+    $('#exp-copy').onclick = () => navigator.clipboard.writeText(text).then(() => { $('#exp-res').textContent = 'Copied'; })
+      .catch(() => { const t = $('#exp-text'); t.focus(); t.select(); $('#exp-res').textContent = 'Press Ctrl/Cmd+C to copy the selection'; });
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -891,7 +973,10 @@ async function doExport(kind) {
   const ids = sortedRows;
   if (kind === 'csv') download('east-tn-parcels.csv', toCSV(ids), 'text/csv');
   if (kind === 'csv-star') download('east-tn-shortlist.csv', toCSV([...user.stars]), 'text/csv');
-  if (kind === 'ids') { await navigator.clipboard.writeText(ids.map(i => COLS.gislink[i]).join('\n')); toast(`Copied ${ids.length} IDs`); }
+  if (kind === 'ids') {
+    const txt = ids.map(i => COLS.gislink[i]).join('\n');
+    try { await navigator.clipboard.writeText(txt); toast(`Copied ${ids.length} IDs`); } catch { download('parcel-ids.txt', txt, 'text/plain'); }
+  }
   if (kind === 'geojson') {
     if (!GEOM) GEOM = await fetch('data/geom.json').then(r => r.json());
     const feats = ids.map(i => ({ type: 'Feature', properties: Object.fromEntries([['score', Math.round(SCORE[i])], ...META.fields.map(f => [f.key, COLS[f.key][i]])]),
@@ -946,6 +1031,7 @@ function wire() {
   $('#btn-import').onclick = importDialog;
   $('#btn-saved').onclick = savedDialog;
   $('#btn-help').onclick = helpDialog;
+  if (OFFLINE) $('#btn-share').hidden = true;
   $('#btn-share').onclick = async () => {
     const url = location.href.split('#')[0] + '#s=' + b64.enc(serialize());
     try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { openDialog(`<h2>Share link</h2><textarea readonly>${esc(url)}</textarea>`); }
@@ -956,7 +1042,7 @@ function wire() {
   $('#btn-theme').onclick = () => {
     const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next; LS.set('theme', next); renderLegend(); parcelLayer.redraw();
+    document.documentElement.dataset.theme = next; LS.set('theme', next); renderLegend(); parcelLayer.redraw(); restyleVectors();
   };
   $('#btn-filters').onclick = () => $('#sidebar').classList.toggle('open');
   $('#btn-close-side').onclick = () => $('#sidebar').classList.remove('open');
@@ -993,7 +1079,7 @@ async function main() {
   }
   buildWeights(); buildFilters(); wire(); initMap();
   let fromHash = false;
-  if (location.hash.startsWith('#s=')) { try { deserialize(b64.dec(location.hash.slice(3))); fromHash = true; } catch { /* bad link */ } }
+  if (!OFFLINE && location.hash.startsWith('#s=')) { try { deserialize(b64.dec(location.hash.slice(3))); fromHash = true; } catch { /* bad link */ } }
   if (fromHash) { syncControls(); recompute(); } else applyPreset('balanced');
   $('#loading').remove();
 }

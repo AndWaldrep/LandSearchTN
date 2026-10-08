@@ -85,3 +85,10 @@ pip install -r pipeline/requirements.txt
 
 To change the study area, minimum acreage, destinations or excluded owners, edit `pipeline/config.py`.
 To change the scoring curves, edit `dashboard/js/scoring.js`.
+
+## Self-contained build (claude.ai Artifact)
+
+`python3 tools/build_artifact.py OUT_DIR` bundles the dashboard into one page that needs no
+third-party tile servers. It uses the LiDAR shaded relief, roads, water, flood and wetland layers from
+`dashboard/data/basemap/` (built by `pipeline/s85_basemap.py`). Exports go through the viewer's save
+prompt, with a copy-to-clipboard fallback.
