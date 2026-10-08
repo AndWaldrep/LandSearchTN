@@ -4,8 +4,9 @@ An open-source (OSINT) dashboard for finding land to build a retirement home in 
 It covers **Loudon, Greenback, Lenoir City, Tellico Village, Vonore, Maryville, Alcoa, Louisville,
 Friendsville, Walland and Townsend**, which is all of Blount and Loudon counties plus northern Monroe.
 
-It shows the **parcels currently listed for sale** (about 480, from LandSearch.com) and can switch to all **12,800+ vacant parcels**. It screens them (0.5–500 acres, no structures, public/utility/HOA land removed)
-against about 90 measured criteria:
+It shows the **parcels currently listed for sale** (about 480, from LandSearch.com). A switch shows all
+**12,800+ vacant parcels** instead (0.5–500 acres, no structures, public/utility/HOA land removed).
+Every parcel is measured against about 90 criteria:
 
 | Category | What's measured |
 |---|---|
