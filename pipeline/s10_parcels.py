@@ -111,6 +111,12 @@ def load_listings():
     if not p.exists():
         return gpd.GeoDataFrame(columns=["geometry"], geometry="geometry", crs=4326)
     rows = [r for r in json.loads(p.read_text())["listings"] if not r["has_home"]]
+    chk = CACHE / "listing_links.json"
+    if chk.exists():  # drop listings whose page no longer opens (sold / withdrawn)
+        status = json.loads(chk.read_text())
+        dead = [r["id"] for r in rows if status.get(str(r["id"]), 200) != 200]
+        print(f"dropping {len(dead)} listings whose page no longer opens")
+        rows = [r for r in rows if r["id"] not in dead]
     x0, y0, x1, y1 = STUDY_BBOX
     rows = [r for r in rows if x0 <= r["lon"] <= x1 and y0 <= r["lat"] <= y1]
     df = pd.DataFrame(rows)
@@ -136,26 +142,80 @@ def listed_parcels(lst, have):
 
 
 STATUS_RANK = {"active": 0, "coming-soon": 1, "pending": 2}
+LIST_COLS = ["listed", "list_id", "list_price", "list_acres", "list_status", "list_url", "list_title", "list_date",
+             "list_match"]
+
+
+def _list_fields(r, match):
+    return {"listed": True, "list_id": r["id"], "list_price": r["price"], "list_acres": r["acres"],
+            "list_status": r["status"], "list_url": r["url"], "list_title": r["title"],
+            "list_date": r["listed_at"], "list_match": match}
 
 
 def attach_listings(g, lst):
-    j = gpd.sjoin(lst, g[["gislink", "geometry"]], predicate="within", how="inner")
-    j["rank"] = j["status"].map(STATUS_RANK).fillna(3)
-    j = j.sort_values(["rank", "listed_at"], ascending=[True, False]).drop_duplicates("gislink")
-    j = j.set_index("gislink")
+    """Give every listing exactly one entry, so every for-sale row links to its listing.
+
+    * A listing whose acreage fits the parcel under its pin is attached to that parcel.
+    * Other listings (no parcel under the pin, a much larger parent tract, or a second listing on
+      the same parcel) get their own entry: a circle of the listed acreage around the pin, clipped
+      to the parcel it sits in, carrying that parcel's assessor attributes.
+    """
+    for c in LIST_COLS:
+        g[c] = False if c == "listed" else (np.nan if c in ("list_id", "list_price", "list_acres") else "")
+    g_m = g.to_crs(32136)
+    g["_ac"] = g_m.area / 4046.8564
+    lst = lst.copy()
+    lst["rank"] = lst["status"].map(STATUS_RANK).fillna(3)
+    j = gpd.sjoin(lst, g[["gislink", "_ac", "geometry"]], predicate="within", how="left")
+    j = j[~j.index.duplicated()]
+    la = j["acres"].fillna(0)
+    fits = j["gislink"].notna() & (j["_ac"] <= np.maximum(3 * la, la + 10)) & (j["_ac"] >= 0.05)
+    j["fit"] = np.abs(np.log((j["_ac"] + 0.01) / (la + 0.01)))
+    prim = j[fits].sort_values(["rank", "fit", "listed_at"], ascending=[True, True, False]).drop_duplicates("gislink")
+    idx = g.set_index("gislink").index
+    for _, r in prim.iterrows():
+        ratio = r["_ac"] / r["acres"] if r["acres"] else np.nan
+        match = "Parcel matches listing" if 0.75 <= ratio <= 1.33 else "Listing covers part / several parcels"
+        pos = idx.get_loc(r["gislink"])
+        for k, v in _list_fields(r, match).items():
+            g.iat[pos, g.columns.get_loc(k)] = v
+
+    rest = j[~j["id"].isin(prim["id"])]
+    synth = []
+    for _, r in rest.iterrows():
+        pt = gpd.GeoSeries([r.geometry], crs=4326).to_crs(32136).iloc[0]
+        ac = r["acres"] if pd.notna(r["acres"]) and r["acres"] > 0 else 0.25
+        area = min(max(ac, 0.25), 200) * 4046.8564
+        circ = pt.buffer(np.sqrt(area / np.pi))
+        base = {}
+        if isinstance(r["gislink"], str):
+            row = g.iloc[idx.get_loc(r["gislink"])]
+            base = row.drop(labels=["geometry", "_ac"] + LIST_COLS).to_dict()
+            parcel = gpd.GeoSeries([row.geometry], crs=4326).to_crs(32136).iloc[0]
+            clipped = circ.intersection(parcel)
+            if clipped.area > 0.3 * circ.area:
+                circ = clipped
+            match = "Separate listing inside a larger parcel (approx. area)"
+        else:
+            match = "Approximate area (no parcel found under the listing pin)"
+            base = {"county": r["county"], "address": r["title"]}
+        base.update(_list_fields(r, match))
+        base["gislink"] = f"LS{int(r['id'])}"
+        base["from_listing"] = True
+        base["synthetic"] = True
+        base["geometry"] = gpd.GeoSeries([circ], crs=32136).to_crs(4326).iloc[0]
+        synth.append(base)
+    g = g.drop(columns=["_ac"])
+    g["synthetic"] = False
+    if synth:
+        g = gpd.GeoDataFrame(pd.concat([g, gpd.GeoDataFrame(synth, geometry="geometry", crs=4326)], ignore_index=True),
+                             geometry="geometry", crs=4326)
+    g["listed"] = g["listed"].fillna(False).astype(bool)
     today = pd.Timestamp(datetime.now(timezone.utc).date())
-    g["listed"] = g["gislink"].isin(j.index)
-    m = g["gislink"]
-    g["list_price"] = m.map(j["price"])
-    g["list_acres"] = m.map(j["acres"])
-    g["list_status"] = m.map(j["status"]).fillna("")
-    g["list_url"] = m.map(j["url"]).fillna("")
-    g["list_title"] = m.map(j["title"]).fillna("")
-    g["list_date"] = m.map(j["listed_at"]).fillna("")
     g["days_listed"] = (today - pd.to_datetime(g["list_date"], errors="coerce")).dt.days
-    g["list_ppa"] = (g["list_price"] / g["list_acres"].where(g["list_acres"] > 0)).round(0)
-    n_multi = (lst.merge(j.reset_index()[["gislink", "id"]], on="id").shape[0])
-    print(f"parcels with a listing: {int(g['listed'].sum())} (listings matched: {n_multi})")
+    g["list_ppa"] = (g["list_price"] / g["list_acres"].where(g["list_acres"] >= 0.05)).round(0)
+    print(f"listings: {len(lst)} -> {len(prim)} on matching parcels, {len(synth)} as their own approx. entries "
+          f"({(rest['gislink'].isna()).sum()} with no parcel under the pin)")
     return g
 
 
@@ -174,7 +234,7 @@ def build():
     cen = g.to_crs(32136).geometry.centroid.to_crs(4326)
     x0, y0, x1, y1 = STUDY_BBOX
     g = g[(cen.x.between(x0, x1)) & (cen.y.between(y0, y1)).values].copy()
-    g = attach_listings(g, lst) if len(lst) else g.assign(listed=False)
+    g = attach_listings(g, lst) if len(lst) else g.assign(listed=False, synthetic=False)
 
     owners = (g["owner"].fillna("") + " " + g["owner2"].fillna("")).str.upper()
     pat = re.compile("|".join(EXCLUDE_OWNER_PATTERNS))
@@ -186,20 +246,6 @@ def build():
     g = g[g["listed"] | ~(excl_owner | excl_class | excl_imp)].copy()
 
     g["acres"] = (g.to_crs(32136).area / 4046.8564).round(3)
-    # a listing point that lands in a much larger parcel (lake, common area, parent tract) is a bad match
-    la = g["list_acres"].fillna(0)
-    bad = g["listed"] & ((g["acres"] > np.maximum(3 * la, la + 10)) | (g["acres"] < 0.05))
-    print(f"dropping {int(bad.sum())} implausible listing matches")
-    for c in ["list_price", "list_acres", "list_ppa", "days_listed"]:
-        g.loc[bad, c] = np.nan
-    for c in ["list_status", "list_url", "list_title", "list_date"]:
-        g.loc[bad, c] = ""
-    g = g[~(bad & g["from_listing"])].copy()
-    g.loc[bad, "listed"] = False
-    g["list_ppa"] = g["list_ppa"].where(g["list_acres"] >= 0.05)
-    ratio = g["acres"] / g["list_acres"].where(g["list_acres"] > 0)
-    g["list_match"] = np.where(~g["listed"], "", np.where(ratio.between(0.75, 1.33), "Parcel matches listing",
-                               "Listing covers part / several parcels"))
     g = g[g["listed"] | g["acres"].between(MIN_ACRES, MAX_ACRES)].copy()
 
     # Ownership signals

@@ -28,6 +28,7 @@ FIELDS = [
     ("list_status", "Listing status", "Listing", "cat", "", None, "active, coming-soon or pending (under contract)"),
     ("list_match", "Listing ↔ parcel match", "Listing", "cat", "", None, "Whether the listing acreage matches this parcel or spans several parcels"),
     ("list_title", "Listing title", "Listing", "text", "", None, ""),
+    ("synthetic", "Approximate parcel area", "Listing", "bool", "", None, "No exact parcel matched this listing, so its area is a circle of the listed acreage around the listing pin"),
     ("county", "County", "Parcel", "cat", "", None, "County the parcel is in"),
     ("city", "City limits", "Parcel", "cat", "", None, "Municipality if inside city limits (city tax + codes apply)"),
     ("nearest_town", "Nearest town (drive)", "Parcel", "cat", "", None, "Closest town center by drive time"),

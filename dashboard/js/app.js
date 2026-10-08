@@ -725,6 +725,7 @@ async function renderDetail(i) {
   if (c('noise_db') >= 58) badge(`Noisy (~${Math.round(c('noise_db'))} dBA)`, 'warn');
   if (c('bldg_fp') > 0) badge(`${c('bldg_fp')} structure(s) detected`, 'warn');
   if (c('owner_changed')) badge('Sold since 2023 snapshot', 'warn');
+  if (c('synthetic')) badge('Approximate area: no exact parcel match', 'warn');
   if (c('greenbelt')) badge('Greenbelt', 'warn');
   if (c('waterfront')) badge('Waterfront', 'good');
   if (c('estate_flag')) badge('Estate/heirs/trust owner', 'warn');
