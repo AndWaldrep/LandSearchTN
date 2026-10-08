@@ -541,7 +541,7 @@ function initMap() {
   const base = {}, over = {};
   if (OFFLINE) buildLocalLayers(base, over);
   else {
-    const topo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS The National Map' });
+    const topo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'USGS The National Map' });
     const imgTopo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, maxNativeZoom: 16, attribution: 'USGS The National Map' });
     const esriImg = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Esri, Maxar, Earthstar Geographics' });
     const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' });
@@ -556,6 +556,9 @@ function initMap() {
     const flood = new ArcGISExportLayer('https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/export', { format: 'png32', layers: 'show:28' }, { opacity: 0.6, attribution: 'FEMA NFHL' });
     const wet = new ArcGISExportLayer('https://tnmap.tn.gov/arcgis/rest/services/ENVIRONMENTAL/NATIONAL_WETLANDS_INVENTORY/MapServer/export', { format: 'png32', layers: 'show:0' }, { opacity: 0.6, minZoom: 12 });
     Object.assign(base, { 'USGS Topo': topo, 'USGS Imagery + Topo': imgTopo, 'Esri Satellite': esriImg, 'OpenStreetMap': osm, 'Dark': dark });
+    const lb = {}, lo = {};
+    buildLocalLayers(lb, lo, false);
+    base['LiDAR shaded relief + roads'] = L.layerGroup([lb['Shaded relief (LiDAR)'], lo['Roads & water'], lo['City & county lines']]);
     Object.assign(over, { 'LiDAR hillshade': hill, 'Slope (LiDAR)': slope, 'Contours (25 ft)': contours, 'FEMA flood zones': flood, 'NWI wetlands (z12+)': wet });
   }
 
@@ -615,14 +618,15 @@ function vecStyle(f) {
   const w = { motorway: 3.2, trunk: 2.6, primary: 2.2, secondary: 1.6, tertiary: 1.1, local: 1 }[p.cls] || 1;
   return { color: css(['motorway', 'trunk', 'primary'].includes(p.cls) ? '--map-road-major' : '--map-road'), weight: w, opacity: 0.9 };
 }
-function buildLocalLayers(base, over) {
+function buildLocalLayers(base, over, show = true) {
   map.createPane('relief').style.zIndex = 150;
   map.createPane('vectors').style.zIndex = 350;
   map.createPane('hazards').style.zIndex = 360;
   const rVec = L.canvas({ pane: 'vectors' }), rHaz = L.canvas({ pane: 'hazards' });
-  const relief = L.layerGroup().addTo(map);
+  const relief = show ? L.layerGroup().addTo(map) : L.layerGroup();
   const slope = L.layerGroup();
-  const roads = L.layerGroup().addTo(map), local = L.layerGroup(), bounds = L.layerGroup().addTo(map);
+  const roads = L.layerGroup(), local = L.layerGroup(), bounds = L.layerGroup();
+  if (show) { roads.addTo(map); bounds.addTo(map); }
   const flood = L.layerGroup(), wet = L.layerGroup();
   Object.assign(base, { 'Shaded relief (LiDAR)': relief, 'Plain': L.layerGroup() });
   Object.assign(over, { 'Roads & water': roads, 'City & county lines': bounds, 'Slope classes (LiDAR)': slope, 'FEMA flood zones': flood, 'NWI wetlands': wet });
@@ -640,7 +644,7 @@ function buildLocalLayers(base, over) {
     local.addLayer(mk(f => f.properties.cls === 'local', rVec));
     bounds.addLayer(mk(f => ['city', 'county'].includes(f.properties.kind), rVec));
     const syncLocal = () => { const on = map.hasLayer(roads) && map.getZoom() >= 13; if (on && !map.hasLayer(local)) local.addTo(map); if (!on && map.hasLayer(local)) local.remove(); };
-    map.on('zoomend overlayadd overlayremove', syncLocal); syncLocal();
+    map.on('zoomend overlayadd overlayremove baselayerchange', syncLocal); syncLocal();
   });
   fetch('data/basemap/overlays.json').then(r => r.json()).then(fc => {
     for (const [grp, kind] of [[flood, 'flood'], [wet, 'wetland']]) {

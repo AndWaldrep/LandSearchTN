@@ -22,6 +22,18 @@ Every parcel is measured against about 90 criteria:
 The full criteria list, with how each item is measured, its limits, and a pre-offer due-diligence
 checklist, is in **[docs/CRITERIA.md](docs/CRITERIA.md)**.
 
+## Live site (GitHub Pages)
+
+Once Pages is turned on, the dashboard is served at
+**https://andwaldrep.github.io/LandSearchTN/** (the root page forwards to `dashboard/`).
+Anyone with the link can use it. "Share link" copies a URL that reopens the exact filters,
+weights and map colouring.
+
+To turn it on: **Settings → Pages → Build and deployment → Source: Deploy from a branch →**
+pick the branch that holds this code and **/ (root)** → Save. The first deploy takes a minute or two,
+and every push to that branch redeploys. GitHub Pages needs the repository to be **public**, or a
+paid plan (GitHub Pro) for a private one. Either way the published site itself is public.
+
 ## Using the dashboard
 
 ```bash
