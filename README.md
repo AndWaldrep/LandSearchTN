@@ -4,7 +4,7 @@ An open-source (OSINT) dashboard for finding land to build a retirement home in 
 It covers **Loudon, Greenback, Lenoir City, Tellico Village, Vonore, Maryville, Alcoa, Louisville,
 Friendsville, Walland and Townsend**, which is all of Blount and Loudon counties plus northern Monroe.
 
-It screens **12,585 vacant parcels** (0.5–500 acres, no structures, public/utility/HOA land removed)
+It shows the **parcels currently listed for sale** (about 480, from LandSearch.com) and can switch to all **12,800+ vacant parcels**. It screens them (0.5–500 acres, no structures, public/utility/HOA land removed)
 against about 90 measured criteria:
 
 | Category | What's measured |
@@ -57,9 +57,10 @@ Features:
 
 ### Important limitations
 
-* **Listing status is not scraped.** Zillow, Realtor.com and LandWatch prohibit it. The dashboard finds
-  the *best land*. Use the listing links, or paste IDs/addresses from listings you find, to overlay
-  "for sale" status. Parcels flagged absentee, estate or long-held are candidates for an off-market letter.
+* **Listings come from LandSearch.com** (it aggregates MLS and broker listings, and its robots.txt allows
+  crawling). Zillow, Realtor.com and LandWatch forbid scraping, so listings only on those sites are missing.
+  Rerun `pipeline/s05_listings.py` and the rest of the pipeline to refresh. In "All vacant" mode, parcels
+  flagged absentee, estate or long-held are candidates for an off-market letter.
 * Views use a bare-earth model, so trees are ignored. Noise is a screening model. Drive times are free-flow.
 * Loudon and Monroe assessor attributes are a 2023 snapshot. Blount's are current. Parcels sold since
   the snapshot are flagged.
@@ -74,6 +75,7 @@ pip install -r pipeline/requirements.txt
 
 | Step | Source |
 |---|---|
+| `s05_listings.py` | LandSearch.com land listings for Blount, Loudon and Monroe counties |
 | `s10_parcels.py` | Blount County GIS parcels/CAMA (current); TN Comptroller CAMA for Loudon and Monroe via the public statewide parcel map; *TN Property Boundaries* for current owners |
 | `s20_overture.py` | Overture Maps (OpenStreetMap roads/POIs/land use; Microsoft/Google building footprints) |
 | `s30_dem.py` | USGS 3DEP elevation service (Tennessee QL2 LiDAR bare-earth) |

@@ -20,6 +20,14 @@ M2FT = 3.28084
 
 # key, label, group, type, unit, better ('low'|'high'|None), description
 FIELDS = [
+    ("listed", "For sale", "Listing", "bool", "", None, "Has an active, coming-soon or pending listing on LandSearch.com"),
+    ("list_price", "Asking price", "Listing", "num", "$", "low", "Listing asking price"),
+    ("list_ppa", "Asking $/acre", "Listing", "num", "$", "low", "Asking price divided by listed acres"),
+    ("list_acres", "Listed acres", "Listing", "num", "ac", None, "Acreage stated in the listing"),
+    ("days_listed", "Days on market", "Listing", "num", "days", None, "Days since the listing date (long = room to negotiate)"),
+    ("list_status", "Listing status", "Listing", "cat", "", None, "active, coming-soon or pending (under contract)"),
+    ("list_match", "Listing ↔ parcel match", "Listing", "cat", "", None, "Whether the listing acreage matches this parcel or spans several parcels"),
+    ("list_title", "Listing title", "Listing", "text", "", None, ""),
     ("county", "County", "Parcel", "cat", "", None, "County the parcel is in"),
     ("city", "City limits", "Parcel", "cat", "", None, "Municipality if inside city limits (city tax + codes apply)"),
     ("nearest_town", "Nearest town (drive)", "Parcel", "cat", "", None, "Closest town center by drive time"),
@@ -145,6 +153,8 @@ def main():
     df["rock_depth_cm"] = (df["rock_depth_cm"] / 2.54).round(0)
     df["prop_class"] = df["class_code"].map(CLASS).fillna("Other")
     df["city"] = df["city"].replace("", "Unincorporated")
+    df["list_status"] = df["list_status"].fillna("").replace("", None)
+    df["list_match"] = df["list_match"].fillna("").replace("", None)
     for c in ["zoning", "water", "sewer", "elec", "gas", "topo_code", "road_type", "drainage"]:
         df[c] = df[c].fillna("").astype(str).str.strip().str.rstrip("%").replace("", "Unknown")
 
@@ -170,16 +180,20 @@ def main():
             cols[key] = [None if (a is None or (isinstance(a, float) and np.isnan(a))) else str(a).strip() for a in s]
     cols["lat"] = [round(float(a), 5) for a in lat]
     cols["lon"] = [round(float(a), 5) for a in lon]
+    cols["list_url"] = df["list_url"].fillna("").astype(str).tolist()
+    cols["list_date"] = df["list_date"].fillna("").astype(str).tolist()
     cols["mail_city"] = df["mail_city"].fillna("").astype(str).str.strip().tolist()
     cols["mail_state"] = df["mail_state"].fillna("").astype(str).str.strip().tolist()
     cols["data_year"] = [int(a) if pd.notna(a) else None for a in df["data_year"]]
 
     meta = {
         "generated": date.today().isoformat(),
+        "listings_fetched": json.loads((CACHE / "listings.json").read_text())["fetched"] if (CACHE / "listings.json").exists() else None,
         "count": len(df),
         "fields": [dict(key=k, label=l, group=g, type=t_, unit=u, better=b, desc=de)
                    for k, l, g, t_, u, b, de in FIELDS],
         "sources": [
+            "For-sale listings: LandSearch.com county result pages (Blount, Loudon, Monroe), matched to parcels by listing map point",
             "Parcels: Blount County GIS (current CAMA); TN Comptroller CAMA 2023 for Loudon & Monroe via HNTB statewide parcel map; TN Property Boundaries (current owners)",
             "Elevation: USGS 3DEP (Tennessee QL2 LiDAR) bare-earth DEM, 10 m & 30 m",
             "Roads, POIs, land use, buildings: Overture Maps Foundation (OpenStreetMap, Microsoft, Google, Meta)",

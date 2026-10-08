@@ -55,14 +55,18 @@ def arcgis_query(layer_url, where="1=1", out_fields="*", geometry=None, extra=No
 
     base = {"where": where, "outFields": out_fields, "f": "geojson", "outSR": 4326,
             "returnGeometry": "true" if return_geometry else "false"}
-    if geometry is not None:
+    if isinstance(geometry, dict):  # e.g. {"points": [[lon, lat], ...]} multipoint
+        base.update({"geometry": json.dumps({**geometry, "spatialReference": {"wkid": 4326}}),
+                     "geometryType": "esriGeometryMultipoint" if "points" in geometry else "esriGeometryPolygon",
+                     "inSR": 4326, "spatialRel": "esriSpatialRelIntersects"})
+    elif geometry is not None:
         base.update({"geometry": ",".join(map(str, geometry)), "geometryType": "esriGeometryEnvelope",
                      "inSR": 4326, "spatialRel": "esriSpatialRelIntersects"})
     if extra:
         base.update(extra)
 
     # Use object-id paging: robust for services that cap resultRecordCount.
-    ids = http_get(f"{layer_url}/query", {**base, "returnIdsOnly": "true", "f": "json"}).json()
+    ids = http_get(f"{layer_url}/query", {**base, "returnIdsOnly": "true", "f": "json"}, method="POST").json()
     oids = sorted(ids.get("objectIds") or [])
     feats = []
     for i in range(0, len(oids), page):

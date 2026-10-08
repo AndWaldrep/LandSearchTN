@@ -3,6 +3,7 @@
 Uses the public OSRM demo server (OpenStreetMap road network). Requests are batched (<=100 coordinates),
 throttled to ~1/s, and cached so reruns are cheap.
 """
+import hashlib
 import time
 
 import geopandas as gpd
@@ -29,7 +30,8 @@ def table(src, dst, key):
             raise RuntimeError(js)
         time.sleep(1.0)
         return js["durations"]
-    d = cached_json(f"osrm_{key}", go)
+    sig = hashlib.md5(repr([key, src, dst]).encode()).hexdigest()[:16]  # cache follows the coordinates
+    d = cached_json(f"osrm_{sig}", go)
     return np.array([[np.nan if v is None else v / 60 for v in row] for row in d])
 
 
@@ -74,9 +76,9 @@ def main():
     for b in range(nb):
         idx = order[b * BATCH:(b + 1) * BATCH]
         src = list(zip(lon[idx], lat[idx]))
-        res_fixed[idx] = table(src, fcoords, f"fixed_v1_{b}")
+        res_fixed[idx] = table(src, fcoords, "fixed")
         cand = np.unique(gnear[idx].ravel())
-        m = table(src, [tuple(gxy[c]) for c in cand], f"groc_v1_{b}")
+        m = table(src, [tuple(gxy[c]) for c in cand], "groc")
         res_groc[idx] = np.nanmin(m, axis=1)
         if b % 20 == 0:
             print(f"  osrm batch {b}/{nb}", flush=True)

@@ -5,51 +5,42 @@ const W = (o = {}) => ({ build: 8, view: 7, quiet: 6, access: 5, health: 7, haza
 export const PRESETS = [
   {
     id: 'balanced', label: 'Balanced retirement (default)', weights: W(),
-    filters: { bldg_fp: { max: 0 }, acres: { min: 1 }, pad_ac: { min: 0.25 }, flood_pct: { max: 50 }, dt_ed_min: { max: 30 } },
+    filters: { flood_pct: { max: 50 }, dt_ed_min: { max: 30 } },
   },
   {
     id: 'view', label: 'Smokies-view homesite',
     weights: W({ view: 10, build: 7, hazard: 6, quiet: 5, health: 5, access: 3, value: 3 }),
-    filters: { bldg_fp: { max: 0 }, view_smokies: { min: 15 }, pad_ac: { min: 0.5 }, slope_mean: { max: 25 } },
+    filters: { view_smokies: { min: 10 }, pad_ac: { min: 0.25 }, slope_mean: { max: 25 } },
   },
   {
     id: 'quiet', label: 'Quiet acreage & privacy',
     weights: W({ quiet: 10, build: 7, value: 6, view: 5, access: 3, health: 4 }),
-    filters: {
-      bldg_fp: { max: 0 }, acres: { min: 5 }, noise_db: { max: 48 }, bldgs_500m: { max: 40 },
-      under_approach: 'no', d_quarry_mi: { min: 1.5 },
-    },
+    filters: { acres: { min: 3 }, noise_db: { max: 50 }, bldgs_500m: { max: 60 }, under_approach: 'no' },
   },
   {
     id: 'health', label: 'Close to hospitals & town',
     weights: W({ health: 10, access: 9, build: 6, view: 3, quiet: 4 }),
-    filters: { bldg_fp: { max: 0 }, acres: { min: 0.5, max: 10 }, dt_ed_min: { max: 15 }, dt_grocery_min: { max: 12 } },
+    filters: { dt_ed_min: { max: 15 }, dt_grocery_min: { max: 12 } },
   },
   {
-    id: 'easy', label: 'Easy build: flat, low-risk, public water',
+    id: 'easy', label: 'Easy build: flat & low-risk',
     weights: W({ build: 10, hazard: 9, value: 5 }),
-    filters: {
-      bldg_fp: { max: 0 }, slope_mean: { max: 10 }, pad_ac: { min: 0.5 }, flood_pct: { max: 0 },
-      sinkhole_risk: { values: ['Low', 'Moderate'] }, water: { values: ['Public'] },
-    },
+    filters: { slope_mean: { max: 12 }, pad_ac: { min: 0.25 }, flood_pct: { max: 0 }, sinkhole_risk: { values: ['Low', 'Moderate'] } },
   },
   {
     id: 'lake', label: 'Near the lake (Tellico / Fort Loudoun)',
     weights: W({ view: 6, access: 6 }),
-    filters: { bldg_fp: { max: 0 }, water_dist_ft: { max: 1500 }, pad_ac: { min: 0.25 }, flood_pct: { max: 30 } },
+    filters: { water_dist_ft: { max: 1500 }, flood_pct: { max: 30 } },
   },
   {
     id: 'safe', label: 'Lowest sinkhole & flood risk',
     weights: W({ hazard: 10, build: 8 }),
-    filters: {
-      bldg_fp: { max: 0 }, sinkhole_risk: { values: ['Low'] }, flood_pct: { max: 0 }, wetland_pct: { max: 0 },
-      karst_geology: 'no', sink_on_parcel: { max: 0 },
-    },
+    filters: { sinkhole_risk: { values: ['Low'] }, flood_pct: { max: 0 }, wetland_pct: { max: 0 }, sink_on_parcel: { max: 0 } },
   },
   {
-    id: 'leads', label: 'Off-market leads (long-held, private owner)',
+    id: 'leads', label: 'Off-market leads (all vacant land)', scope: 'all',
     weights: W({ value: 10, build: 6 }),
     filters: { bldg_fp: { max: 0 }, acres: { min: 2 }, years_held: { min: 15 }, corp_owner: 'no', owner_changed: 'no' },
   },
-  { id: 'none', label: 'No filters (everything)', weights: W(), filters: {} },
+  { id: 'none', label: 'No filters', weights: W(), filters: {} },
 ];

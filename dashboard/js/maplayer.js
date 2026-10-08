@@ -54,7 +54,7 @@ export const ParcelCanvas = L.Layer.extend({
     const ys = (this._ys = new Float32Array(n));
     this._rows = rows;
     this._polys = [];
-    const r = zoom <= 10 ? 2.5 : zoom <= 12 ? 3.5 : 5;
+    const r = (zoom <= 10 ? 2.5 : zoom <= 12 ? 3.5 : 5) + (n < 1500 ? 1.5 : 0); // fewer dots -> bigger dots
     const pad = 40;
     for (let k = 0; k < n; k++) {
       const i = rows[k];

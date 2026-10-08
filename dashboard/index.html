@@ -11,10 +11,17 @@
 <body>
 <div id="app">
   <header class="topbar">
-    <button class="icon-btn only-mobile" id="btn-filters" aria-label="Show filters">☰</button>
+    <button class="btn filters-btn" id="btn-filters" aria-controls="sidebar" aria-expanded="true">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="lbl">Filters</span><span class="badge-n" id="filter-count" hidden></span>
+    </button>
     <div class="brand">
       <h1>East TN Land Finder</h1>
-      <span class="sub">Loudon · Blount · N. Monroe — vacant parcels for a retirement build</span>
+      <span class="sub">Loudon · Blount · N. Monroe land for a retirement build</span>
+    </div>
+    <div class="seg scope" id="scope" role="group" aria-label="Which parcels">
+      <button data-v="sale" class="on">For sale <span id="n-sale"></span></button>
+      <button data-v="all">All vacant <span id="n-all"></span></button>
     </div>
     <div class="stats" id="stats"></div>
     <div class="top-actions">
@@ -38,30 +45,38 @@
     </div>
   </header>
 
-  <aside class="sidebar" id="sidebar">
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside class="sidebar" id="sidebar" aria-label="Filters">
     <div class="side-head">
-      <input type="search" id="q" placeholder="Search address, owner, subdivision, parcel ID…" autocomplete="off">
-      <div class="side-tools">
-        <input type="search" id="filter-find" placeholder="Find a filter…" autocomplete="off">
-        <button class="btn small" id="btn-reset">Reset all</button>
-        <button class="icon-btn small only-mobile" id="btn-close-side" aria-label="Close filters">✕</button>
+      <div class="side-title">
+        <strong>Filters</strong>
+        <span class="spacer"></span>
+        <button class="btn small" id="btn-expand-all" type="button">Expand all</button>
+        <button class="btn small" id="btn-collapse-all" type="button">Collapse all</button>
+        <button class="icon-btn" id="btn-close-side" aria-label="Hide filters" title="Hide filters">✕</button>
       </div>
+      <input type="search" id="q" placeholder="Search address, owner, subdivision, parcel ID…" autocomplete="off">
+      <input type="search" id="filter-find" placeholder="Find a filter by name…" autocomplete="off">
       <div class="chips" id="active-chips"></div>
     </div>
     <div class="side-scroll">
+      <section class="panel" id="panel-quick">
+        <button class="panel-h" aria-expanded="true"><span>Quick filters<span class="count"></span></span><span class="caret">▾</span></button>
+        <div class="panel-b" id="quick-filters"></div>
+      </section>
       <section class="panel" id="panel-weights">
-        <button class="panel-h" aria-expanded="true"><span>Scoring weights</span><span class="caret">▾</span></button>
+        <button class="panel-h" aria-expanded="false"><span>Scoring weights</span><span class="caret">▾</span></button>
         <div class="panel-b">
           <p class="hint">The overall score (0–100) is the weighted average of seven sub-scores. Set a weight to 0 to ignore that category.</p>
           <div id="weights"></div>
           <div class="row-ctl">
-            <label>Minimum overall score <output id="minscore-out">0</output></label>
+            <label for="minscore">Minimum overall score <output id="minscore-out">0</output></label>
             <input type="range" id="minscore" min="0" max="100" step="1" value="0">
           </div>
         </div>
       </section>
       <section class="panel" id="panel-special">
-        <button class="panel-h" aria-expanded="true"><span>Where &amp; my lists</span><span class="caret">▾</span></button>
+        <button class="panel-h" aria-expanded="false"><span>Area &amp; my lists</span><span class="caret">▾</span></button>
         <div class="panel-b">
           <div class="seg-row">
             <span class="lbl">Area</span>
@@ -73,39 +88,48 @@
           </div>
           <div id="radius-ctl" hidden>
             <p class="hint">Click the map to set the center.</p>
-            <label>Radius <output id="radius-out">5</output> mi</label>
+            <label for="radius">Radius <output id="radius-out">5</output> mi</label>
             <input type="range" id="radius" min="1" max="30" step="0.5" value="5">
           </div>
           <label class="check"><input type="checkbox" id="only-star"> Shortlist only (★)</label>
-          <label class="check"><input type="checkbox" id="only-listed"> Marked as listed for sale only</label>
+          <label class="check"><input type="checkbox" id="only-listed"> Only parcels I marked as listed</label>
           <label class="check"><input type="checkbox" id="show-hidden"> Include parcels I've hidden</label>
           <button class="btn small" id="btn-import">Paste listing parcel IDs / addresses…</button>
         </div>
       </section>
+      <div class="group-label">All filters by topic</div>
       <div id="filter-groups"></div>
+    </div>
+    <div class="side-foot">
+      <button class="btn" id="btn-reset" type="button">Reset</button>
+      <button class="btn primary" id="btn-show" type="button">Show results</button>
     </div>
   </aside>
 
-  <main class="main">
+  <main class="main" id="main">
     <div class="map-wrap">
       <div id="map"></div>
-      <div class="map-ctl">
-        <label class="sel">
-          <span>Color by</span>
-          <select id="color-by"></select>
-        </label>
+      <div class="map-ctl" id="map-ctl">
+        <div class="map-ctl-row">
+          <label class="sel">
+            <span>Color by</span>
+            <select id="color-by"></select>
+          </label>
+          <button class="icon-btn small" id="btn-legend" aria-label="Hide legend" aria-expanded="true" title="Hide legend">–</button>
+        </div>
         <div class="legend" id="legend"></div>
       </div>
       <aside class="detail" id="detail" hidden></aside>
     </div>
     <div class="table-wrap" id="table-wrap">
       <div class="table-bar">
+        <button class="btn small" id="btn-table-toggle" aria-expanded="true">▾ Hide list</button>
         <strong id="table-title">Results</strong>
         <span class="muted" id="table-sub"></span>
         <span class="spacer"></span>
         <button class="btn small" id="btn-compare" disabled>Compare (0)</button>
         <button class="btn small" id="btn-cols">Columns</button>
-        <button class="icon-btn small" id="btn-table-size" title="Resize table">⇕</button>
+        <button class="icon-btn small" id="btn-table-size" title="Make the list taller or shorter" aria-label="Resize list">⇕</button>
       </div>
       <div class="table-scroll"><table id="results"><thead></thead><tbody></tbody></table></div>
       <div class="table-foot"><button class="btn small" id="btn-more">Show more</button></div>
@@ -115,7 +139,7 @@
 
 <dialog id="dlg"><form method="dialog" class="dlg-inner"><div id="dlg-body"></div><div class="dlg-foot"><button class="btn" value="close">Close</button></div></form></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
-<div id="loading"><div class="spinner"></div><p>Loading 12,000+ parcels…</p></div>
+<div id="loading"><div class="spinner"></div><p>Loading parcels…</p></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="js/app.js"></script>

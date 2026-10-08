@@ -20,6 +20,7 @@ const STATUS = { Low: '#0ca30c', Moderate: '#fab219', High: '#d03b3b', 'Not limi
 const CAT_ORDER = { sinkhole_risk: ['Low', 'Moderate', 'High'], septic_rating: ['Not limited', 'Somewhat limited', 'Very limited', 'Not rated', 'Unknown'],
   basement_rating: ['Not limited', 'Somewhat limited', 'Very limited', 'Not rated', 'Unknown'] };
 
+let N_SALE = 0;
 let META, COLS, N, LAYERS, ROWS, FIELD = {}, GROUPS = [];
 let SUB = [];          // per-row sub-scores
 let SCORE;             // Float32Array overall score
@@ -51,9 +52,10 @@ const state = {
   onlyStar: false, onlyListed: false, showHidden: false,
   colorBy: 'score',
   sort: { key: 'score', dir: -1 },
-  columns: ['score', 'acres', 'nearest_town', 'city', 'view_smokies', 'slope_mean', 'pad_ac', 'noise_db', 'dt_ed_min',
-    'dt_grocery_min', 'sinkhole_risk', 'flood_pct', 'land_val', 'land_val_per_ac', 'address'],
-  openGroups: LS.get('openGroups', ['Terrain', 'Views']),
+  scope: 'sale',        // 'sale' = parcels with an active/pending listing; 'all' = every vacant candidate
+  columns: ['score', 'list_link', 'list_price', 'acres', 'list_ppa', 'days_listed', 'nearest_town', 'view_smokies', 'slope_mean',
+    'pad_ac', 'noise_db', 'dt_ed_min', 'sinkhole_risk', 'flood_pct', 'address'],
+  openGroups: LS.get('openGroups2', []),
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -92,6 +94,9 @@ async function load() {
   for (let i = 0; i < N; i++) { const r = { i }; for (const k of keys) r[k] = COLS[k][i]; ROWS[i] = r; }
   const per = COLS.land_val_per_ac.filter(v => v != null && v > 0).sort((a, b) => a - b);
   ctxScore.medPerAc = per[Math.floor(per.length / 2)];
+  const lp = COLS.list_ppa ? COLS.list_ppa.filter(v => v != null && v > 0).sort((a, b) => a - b) : [];
+  ctxScore.medListPpa = lp[Math.floor(lp.length / 2)];
+  N_SALE = COLS.listed ? COLS.listed.reduce((a, v) => a + (v ? 1 : 0), 0) : 0;
   SUB = ROWS.map(r => subscores(r, ctxScore));
   SCORE = new Float32Array(N);
   prepFields();
@@ -164,6 +169,7 @@ function recompute({ keepTable = false } = {}) {
   if (!state.showHidden) extra.push(i => !user.hidden.has(i));
   if (state.onlyStar) extra.push(i => user.stars.has(i));
   if (state.onlyListed) extra.push(i => !!user.listed[i]);
+  if (state.scope === 'sale') extra.push(i => COLS.listed[i] === 1);
   const sp = state.spatial;
   if (sp.mode === 'view' && map) {
     const b = map.getBounds();
@@ -217,6 +223,7 @@ function valueGetter(key) {
   if (key === 'score') return i => SCORE[i];
   if (key.startsWith('s_')) { const k = key.slice(2); return i => SUB[i][k]; }
   if (key === 'star') return i => (user.stars.has(i) ? 1 : 0);
+  if (key === 'list_link') return i => COLS.list_price[i];
   return i => COLS[key][i];
 }
 
@@ -235,7 +242,12 @@ function buildWeights() {
   $('#minscore').addEventListener('input', e => { state.minScore = +e.target.value; $('#minscore-out').textContent = e.target.value; debounced(); });
 }
 
+const QUICK = ['list_price', 'list_ppa', 'acres', 'view_smokies', 'slope_mean', 'pad_ac', 'dt_ed_min', 'dt_grocery_min',
+  'noise_db', 'sinkhole_risk', 'flood_pct'];
 function buildFilters() {
+  const quick = $('#quick-filters');
+  quick.innerHTML = QUICK.filter(k => FIELD[k]).map(k => filterHTML(FIELD[k])).join('');
+  for (const el of $$('.flt', quick)) wireFilter(el);
   const host = $('#filter-groups');
   host.innerHTML = GROUPS.map(g => {
     const fields = META.fields.filter(f => f.group === g);
@@ -251,9 +263,9 @@ function buildFilters() {
     const g = h.parentElement.dataset.group;
     if (g) {
       state.openGroups = open ? [...new Set([...state.openGroups, g])] : state.openGroups.filter(x => x !== g);
-      LS.set('openGroups', state.openGroups);
-      if (open) updateFilterWidgets();
+      LS.set('openGroups2', state.openGroups);
     }
+    if (open) updateFilterWidgets();
   }));
 }
 
@@ -367,7 +379,7 @@ function paintNum(el, f) {
 const BINS = 40;
 function updateFilterWidgets() {
   let total = 0;
-  for (const panel of $$('#filter-groups .panel')) {
+  for (const panel of $$('#panel-quick, #filter-groups .panel')) {
     const open = panel.querySelector('.panel-h').getAttribute('aria-expanded') === 'true';
     let n = 0;
     for (const el of $$('.flt', panel)) {
@@ -421,9 +433,10 @@ function updateFilterWidgets() {
       }
     }
     panel.querySelector('.count').textContent = n ? `${n} active` : '';
-    total += n;
+    if (panel.id !== 'panel-quick') total += n;
   }
-  void total;
+  const nAct = activeFilters().length + (state.minScore > 0) + (state.spatial.mode !== 'none');
+  const badge = $('#filter-count'); badge.hidden = !nAct; badge.textContent = nAct;
 }
 
 function renderChips() {
@@ -448,16 +461,18 @@ function median(arr) { const v = arr.filter(x => x != null).sort((a, b) => a - b
 function renderStats() {
   const n = filtered.length;
   const take = k => filtered.map(i => COLS[k][i]);
+  const sale = state.scope === 'sale';
   $('#stats').innerHTML = [
-    [nf0.format(n), `of ${nf0.format(N)} parcels`],
+    [nf0.format(n), sale ? `of ${nf0.format(N_SALE)} for sale` : `of ${nf0.format(N)} parcels`],
+    sale ? [fmt('list_price', median(take('list_price'))), 'median asking'] : [fmt('acres', median(take('acres'))), 'median size'],
     [fmt('acres', median(take('acres'))), 'median size'],
-    [fmt('land_val_per_ac', median(take('land_val_per_ac'))), 'median $/acre'],
     [fmt('dt_ed_min', median(take('dt_ed_min'))), 'median to ER'],
     [nf0.format(filtered.filter(i => (COLS.view_smokies[i] || 0) >= 15).length), 'with Smokies view'],
-  ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+  ].filter((x, j) => sale || j !== 2).map(([b, s_]) => `<div class="stat"><b>${b}</b><span>${s_}</span></div>`).join('');
+  $('#btn-show').textContent = `Show ${nf0.format(n)} parcel${n === 1 ? '' : 's'}`;
 }
 
-function colLabel(k) { return k === 'score' ? 'Score' : (FIELD[k]?.label ?? k); }
+function colLabel(k) { return k === 'score' ? 'Score' : k === 'list_link' ? 'Listing' : (FIELD[k]?.label ?? k); }
 function renderTable() {
   const cols = state.columns;
   const thead = $('#results thead'), tbody = $('#results tbody');
@@ -467,6 +482,7 @@ function renderTable() {
   }).join('')}<th class="l">Cmp</th></tr>`;
   const rows = sortedRows.slice(0, tableLimit);
   tbody.innerHTML = rows.map(i => `<tr data-i="${i}" class="${i === selected ? 'is-sel' : ''}"><td><button class="star${user.stars.has(i) ? ' on' : ''}" data-star="${i}" aria-label="Shortlist">${user.stars.has(i) ? '★' : '☆'}</button></td>${cols.map(k => {
+    if (k === 'list_link') return `<td class="l">${COLS.list_url[i] ? `<a href="${esc(COLS.list_url[i])}" target="_blank" rel="noopener">View ↗</a>${COLS.list_status[i] && COLS.list_status[i] !== 'active' ? ` <span class="badge warn">${esc(COLS.list_status[i])}</span>` : ''}` : '—'}</td>`;
     if (k === 'score') { const s = SCORE[i]; return `<td><span class="scorecell"><i style="width:${Math.round(s * 0.4)}px"></i>${Math.round(s)}</span></td>`; }
     const f = FIELD[k]; const left = f && f.type !== 'num' && f.type !== 'bool';
     const v = k.startsWith('s_') ? SUB[i][k.slice(2)] : COLS[k][i];
@@ -723,6 +739,9 @@ async function renderDetail(i) {
   const listed = user.listed[i] || {};
   d.innerHTML = `<button class="icon-btn close" aria-label="Close">✕</button>
     <h2>${esc(c('address') || 'Vacant parcel')} · ${fmt('acres', c('acres'))}</h2>
+    ${c('listed') ? `<div class="listing-box"><div><b>${fmt('list_price', c('list_price'))}</b> asking · ${fmt('list_acres', c('list_acres'))} listed${c('list_ppa') ? ` · ${fmt('list_ppa', c('list_ppa'))}/ac` : ''}</div>
+      <div class="muted">${esc(c('list_status'))}${c('days_listed') != null ? ` · on market ${nf0.format(c('days_listed'))} days` : ''} · ${esc(c('list_match'))}</div>
+      <a class="btn small primary" href="${esc(c('list_url'))}" target="_blank" rel="noopener">View listing on LandSearch ↗</a></div>` : '<div class="listing-box muted">Not currently listed for sale (as of the last listing check).</div>'}
     <div class="sub">${esc(c('nearest_town') || '')} area · ${esc(c('county'))} Co. · ${esc(c('city'))} · ID ${esc(c('gislink'))}<br>Owner: ${esc(c('owner') || '—')}${c('mail_city') ? ` (${esc(c('mail_city'))}, ${esc(c('mail_state'))})` : ''}</div>
     <div class="flags">${flags.join('')}</div>
     <div class="score-big"><b>${Math.round(SCORE[i])}</b><span class="muted">overall score · rank ${nf0.format(sortedByScoreRank(i))} of ${nf0.format(filtered.length)} matches</span></div>
@@ -804,6 +823,7 @@ function toggleStar(i) {
 function applyPreset(id) {
   const p = PRESETS.find(x => x.id === id); if (!p) return;
   state.preset = id;
+  if (p.scope) state.scope = p.scope;
   state.weights = { ...p.weights };
   state.filters = JSON.parse(JSON.stringify(p.filters));
   for (const [k, s] of Object.entries(state.filters)) {
@@ -820,6 +840,7 @@ function syncControls() {
   $$('#spatial-mode button').forEach(b => b.classList.toggle('on', b.dataset.v === state.spatial.mode));
   $('#radius-ctl').hidden = state.spatial.mode !== 'radius';
   $('#radius').value = state.spatial.radius; $('#radius-out').textContent = state.spatial.radius;
+  $$('#scope button').forEach(b => b.classList.toggle('on', b.dataset.v === state.scope));
   $('#only-star').checked = state.onlyStar; $('#only-listed').checked = state.onlyListed; $('#show-hidden').checked = state.showHidden;
   $('#color-by').value = state.colorBy;
   $('#preset').value = PRESETS.some(p => p.id === state.preset) ? state.preset : '';
@@ -828,12 +849,12 @@ function syncControls() {
 function serialize() {
   const f = {};
   for (const [k, s] of activeFilters()) f[k] = s;
-  return { p: state.preset, f, w: state.weights, ms: state.minScore, q: state.q, sp: state.spatial, c: state.colorBy, os: state.onlyStar, ol: state.onlyListed, cols: state.columns, s: state.sort };
+  return { p: state.preset, f, w: state.weights, ms: state.minScore, q: state.q, sp: state.spatial, c: state.colorBy, os: state.onlyStar, ol: state.onlyListed, sc: state.scope, cols: state.columns, s: state.sort };
 }
 function deserialize(o) {
   state.preset = o.p ?? 'custom'; state.filters = o.f || {}; state.weights = { ...state.weights, ...(o.w || {}) };
   state.minScore = o.ms || 0; state.q = o.q || ''; state.spatial = { ...state.spatial, ...(o.sp || {}) };
-  state.colorBy = o.c || 'score'; state.onlyStar = !!o.os; state.onlyListed = !!o.ol;
+  state.colorBy = o.c || 'score'; state.onlyStar = !!o.os; state.onlyListed = !!o.ol; state.scope = o.sc || 'sale';
   if (Array.isArray(o.cols)) state.columns = o.cols.filter(k => k === 'score' || k.startsWith('s_') || FIELD[k]);
   if (o.s) state.sort = o.s;
 }
@@ -921,15 +942,16 @@ function importDialog() {
 
 function helpDialog() {
   openDialog(`<div class="about"><h2>About this dashboard</h2>
-    <p><b>${nf0.format(N)}</b> vacant candidate parcels (0.5–500 acres, no buildings on the assessor roll, public/utility/HOA land removed) in Blount, Loudon and northern Monroe counties. Data built ${META.generated}.</p>
+    <p><b>${nf0.format(N_SALE)}</b> parcels currently listed for sale (LandSearch.com, checked ${esc(META.listings_fetched || '—')}), out of <b>${nf0.format(N)}</b> vacant or listed parcels in Blount, Loudon and northern Monroe counties. Use the <b>For sale / All vacant</b> switch at the top to change which you see. Data built ${META.generated}.</p>
     <ul>${META.sources.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
     <h3>How to use it</h3>
-    <ul><li>Start with a <b>preset</b>, then tune filters. Every metric is a filter; histograms show the whole dataset (gray) and what passes your <i>other</i> filters (blue).</li>
+    <ul><li>Open <b>Filters</b> (top left) to show or hide the filter panel. <b>Quick filters</b> hold the most-used ones; every other metric is under <b>All filters by topic</b>.</li>
+    <li>Start with a <b>preset</b>, then tune filters. Every metric is a filter; histograms show the whole dataset (gray) and what passes your <i>other</i> filters (blue).</li>
     <li>Adjust <b>scoring weights</b> to rank what remains. Hover a sub-score in the detail panel to see how it was computed.</li>
     <li>Click a parcel for its skyline toward the Smokies, research links (assessor, flood map, broadband, listings), notes and listing info.</li>
     <li>Shortlist (★), hide, compare, save searches, share links, and export CSV/GeoJSON.</li></ul>
     <h3>Important caveats</h3>
-    <ul><li><b>For-sale status is not scraped.</b> Listing sites forbid it. Use the listing links or paste listing IDs/addresses (“Where &amp; my lists”) to mark parcels as listed.</li>
+    <ul><li>Listings come from LandSearch.com, which aggregates MLS and broker listings. A few listings elsewhere may be missing. Each listing is matched to the parcel under its map point, so a listing spanning several parcels shows on one. You can also mark parcels yourself (“Area &amp; my lists”).</li>
     <li>Views use a bare-earth LiDAR model: trees are ignored. Check canopy on imagery.</li>
     <li>Noise is a screening model by road class and distance, with no terrain shielding. Drive times are free-flow (add 10–25% at rush hour).</li>
     <li>Loudon/Monroe assessor attributes are a 2023 snapshot. “Sold since snapshot” flags changed owners. “Structures detected” uses building footprints.</li>
@@ -988,6 +1010,26 @@ async function doExport(kind) {
 // ---------------------------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------------------------
+const isMobile = () => matchMedia('(max-width: 900px)').matches;
+function sidebarOpen() { return isMobile() ? document.body.classList.contains('side-open') : !document.body.classList.contains('side-closed'); }
+function setSidebar(open) {
+  if (isMobile()) document.body.classList.toggle('side-open', open);
+  else { document.body.classList.toggle('side-closed', !open); LS.set('sideClosed', !open); }
+  $('#btn-filters').setAttribute('aria-expanded', open);
+  setTimeout(() => map && map.invalidateSize(), 60);
+}
+function setTable(open) {
+  state.tableCollapsed = !open; LS.set('tableCollapsed', !open);
+  $('#main').classList.toggle('table-collapsed', !open);
+  const b = $('#btn-table-toggle'); b.textContent = open ? '▾ Hide list' : '▴ Show list'; b.setAttribute('aria-expanded', open);
+  setTimeout(() => map && map.invalidateSize(), 60);
+}
+function setAllPanels(open) {
+  for (const h of $$('#filter-groups .panel-h, #panel-weights .panel-h, #panel-special .panel-h')) h.setAttribute('aria-expanded', open);
+  state.openGroups = open ? GROUPS.slice() : []; LS.set('openGroups2', state.openGroups);
+  if (open) updateFilterWidgets();
+}
+
 let debT;
 function debounced() { clearTimeout(debT); debT = setTimeout(() => recompute(), 120); }
 
@@ -1012,7 +1054,7 @@ function wire() {
     }
     if (t) updateFilterWidgets();
   });
-  $('#btn-reset').onclick = () => { state.filters = {}; state.minScore = 0; state.q = ''; state.spatial.mode = 'none'; state.onlyStar = state.onlyListed = false; state.preset = 'none'; syncControls(); recompute(); };
+  $('#btn-reset').onclick = () => { state.filters = {}; state.minScore = 0; state.q = ''; state.spatial.mode = 'none'; state.onlyStar = state.onlyListed = false; state.preset = 'none'; syncControls(); recompute(); toast('Filters cleared'); };
   $('#active-chips').addEventListener('click', e => {
     const k = e.target.dataset.k; if (!k) return;
     if (k === '__score') state.minScore = 0; else if (k === '__spatial') state.spatial.mode = 'none'; else delete state.filters[k];
@@ -1044,8 +1086,19 @@ function wire() {
     const next = cur === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next; LS.set('theme', next); renderLegend(); parcelLayer.redraw(); restyleVectors();
   };
-  $('#btn-filters').onclick = () => $('#sidebar').classList.toggle('open');
-  $('#btn-close-side').onclick = () => $('#sidebar').classList.remove('open');
+  $('#btn-filters').onclick = () => setSidebar(!sidebarOpen());
+  $('#btn-close-side').onclick = () => setSidebar(false);
+  $('#backdrop').onclick = () => setSidebar(false);
+  $('#btn-show').onclick = () => { setSidebar(false); if (state.tableCollapsed) setTable(true); };
+  $('#btn-expand-all').onclick = () => setAllPanels(true);
+  $('#btn-collapse-all').onclick = () => setAllPanels(false);
+  $('#scope').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state.scope = b.dataset.v; syncControls(); recompute(); });
+  $('#btn-table-toggle').onclick = () => setTable(state.tableCollapsed);
+  $('#btn-legend').onclick = () => {
+    const ctl = $('#map-ctl'), col = !ctl.classList.contains('collapsed');
+    ctl.classList.toggle('collapsed', col); $('#btn-legend').textContent = col ? '+' : '–';
+    $('#btn-legend').setAttribute('aria-expanded', !col); $('#btn-legend').title = col ? 'Show legend' : 'Hide legend';
+  };
   $('#btn-cols').onclick = columnsDialog;
   $('#btn-compare').onclick = compareDialog;
   $('#btn-more').onclick = () => { tableLimit += 300; renderTable(); };
@@ -1062,11 +1115,13 @@ function wire() {
   });
   const tbody = $('#results tbody');
   tbody.addEventListener('click', e => {
+    if (e.target.closest('a')) return;
     if (e.target.dataset.star) { toggleStar(+e.target.dataset.star); return; }
     if (e.target.dataset.cmp) { const i = +e.target.dataset.cmp; e.target.checked ? compareSet.add(i) : compareSet.delete(i); renderTable(); return; }
     const tr = e.target.closest('tr'); if (tr) select(+tr.dataset.i);
   });
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isMobile() && sidebarOpen()) { setSidebar(false); return; }
     if (e.key === 'Escape' && !DOM.detail.hidden && !$('#dlg').open) { DOM.detail.hidden = true; selected = null; parcelLayer.redraw(); }
   });
 }
@@ -1078,6 +1133,10 @@ async function main() {
     return;
   }
   buildWeights(); buildFilters(); wire(); initMap();
+  if (isMobile() || LS.get('sideClosed', false)) setSidebar(false);
+  if (LS.get('tableCollapsed', false)) setTable(false);
+  $('#n-sale').textContent = nf0.format(N_SALE); $('#n-all').textContent = nf0.format(N);
+  if (!N_SALE) { state.scope = 'all'; $('#scope').hidden = true; }
   let fromHash = false;
   if (!OFFLINE && location.hash.startsWith('#s=')) { try { deserialize(b64.dec(location.hash.slice(3))); fromHash = true; } catch { /* bad link */ } }
   if (fromHash) { syncControls(); recompute(); } else applyPreset('balanced');
