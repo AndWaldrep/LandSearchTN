@@ -38,9 +38,20 @@ const OFFLINE = !!window.LSTN_OFFLINE;
 const TOUCH = matchMedia('(hover: none)').matches; // sandboxed host: no third-party tiles, downloads or URL state
 const ctxScore = {};
 
-const user = { stars: new Set(LS.get('stars', [])), hidden: new Set(LS.get('hidden', [])), notes: LS.get('notes', {}), listed: LS.get('listed', {}) };
+// Shortlist, hidden parcels and notes are kept per browser, keyed by parcel ID so they survive data refreshes.
+const user = { stars: new Set(), hidden: new Set(), notes: {} };
+function loadUser() {
+  const idx = new Map(COLS.gislink.map((g, i) => [g, i]));
+  const ids = k => (LS.get(k, []) || []).map(g => idx.get(g)).filter(i => i != null);
+  user.stars = new Set(ids('stars_v2'));
+  user.hidden = new Set(ids('hidden_v2'));
+  user.notes = {};
+  for (const [g, t] of Object.entries(LS.get('notes_v2', {}) || {})) if (idx.has(g)) user.notes[idx.get(g)] = t;
+}
 function saveUser() {
-  LS.set('stars', [...user.stars]); LS.set('hidden', [...user.hidden]); LS.set('notes', user.notes); LS.set('listed', user.listed);
+  const g = i => COLS.gislink[i];
+  LS.set('stars_v2', [...user.stars].map(g)); LS.set('hidden_v2', [...user.hidden].map(g));
+  LS.set('notes_v2', Object.fromEntries(Object.entries(user.notes).map(([i, t]) => [g(+i), t])));
 }
 
 const state = {
@@ -97,8 +108,9 @@ async function load() {
   ctxScore.medPerAc = per[Math.floor(per.length / 2)];
   const lp = COLS.list_ppa ? COLS.list_ppa.filter(v => v != null && v > 0).sort((a, b) => a - b) : [];
   ctxScore.medListPpa = lp[Math.floor(lp.length / 2)];
-  N_SALE = COLS.listed ? COLS.listed.reduce((a, v) => a + (v ? 1 : 0), 0) : 0;
+  N_SALE = N; // every parcel in the data is listed for sale
   SUB = ROWS.map(r => subscores(r, ctxScore));
+  loadUser();
   SCORE = new Float32Array(N);
   prepFields();
 }
@@ -169,8 +181,6 @@ function recompute({ keepTable = false } = {}) {
   }
   if (!state.showHidden) extra.push(i => !user.hidden.has(i));
   if (state.onlyStar) extra.push(i => user.stars.has(i));
-  if (state.onlyListed) extra.push(i => !!user.listed[i]);
-  if (state.scope === 'sale') extra.push(i => COLS.listed[i] === 1);
   const sp = state.spatial;
   if (sp.mode === 'view' && map) {
     const b = map.getBounds();
@@ -467,7 +477,7 @@ function renderStats() {
   const sale = state.scope === 'sale';
   $('#stats').innerHTML = [
     [nf0.format(n), sale ? `of ${nf0.format(N_SALE)} for sale` : `of ${nf0.format(N)} parcels`],
-    sale ? [fmt('list_price', median(take('list_price'))), 'median asking'] : [fmt('acres', median(take('acres'))), 'median size'],
+    [fmt('list_price', median(take('list_price'))), 'median asking'],
     [fmt('acres', median(take('acres'))), 'median size'],
     [fmt('dt_ed_min', median(take('dt_ed_min'))), 'median to ER'],
     [nf0.format(filtered.filter(i => (COLS.view_smokies[i] || 0) >= 15).length), 'with Smokies view'],
@@ -515,8 +525,8 @@ function renderCards() {
   }
   const chip = (txt, cls = '') => `<span class="chip-s ${cls}">${esc(txt)}</span>`;
   host.innerHTML = rows.map(i => {
-    const c = k => COLS[k][i];
-    const listed = c('listed');
+    const c = k => COLS[k]?.[i];
+    const listed = true;
     const chips = [
       c('view_smokies') != null ? chip(`Smokies ${Math.round(c('view_smokies'))}%`, c('view_smokies') >= 15 ? 'good' : '') : '',
       chip(`Slope ${fmt('slope_mean', c('slope_mean'))}`, c('slope_mean') > 20 ? 'bad' : ''),
@@ -851,7 +861,7 @@ function links(i) {
 
 async function renderDetail(i) {
   const d = DOM.detail; d.hidden = false;
-  const c = k => COLS[k][i];
+  const c = k => COLS[k]?.[i];
   const flags = [];
   const badge = (txt, cls) => flags.push(`<span class="badge ${cls}">${esc(txt)}</span>`);
   if (c('view_smokies') >= 15) badge(`Smokies view ${Math.round(c('view_smokies'))}%`, 'good');
@@ -860,26 +870,21 @@ async function renderDetail(i) {
   if (c('under_approach')) badge('Under TYS flight path', 'bad');
   if (c('noise_db') >= 58) badge(`Noisy (~${Math.round(c('noise_db'))} dBA)`, 'warn');
   if (c('bldg_fp') > 0 && !c('synthetic')) badge(`${c('bldg_fp')} structure(s) detected`, 'warn');
-  if (c('owner_changed')) badge('Sold since 2023 snapshot', 'warn');
   if (c('synthetic')) badge('Approximate area: no exact parcel match', 'warn');
   if (c('greenbelt')) badge('Greenbelt', 'warn');
   if (c('waterfront')) badge('Waterfront', 'good');
-  if (c('estate_flag')) badge('Estate/heirs/trust owner', 'warn');
-  if (c('out_of_state')) badge(`Owner in ${c('mail_state') || 'another state'}`, 'warn');
-  if (user.listed[i]) badge('Marked as listed', 'good');
 
   const sub = SUB[i];
   const kvGroups = GROUPS.map(g => {
     const fs = META.fields.filter(f => f.group === g && !['address', 'owner', 'gislink'].includes(f.key));
     return `<div class="kv-group"><h3>${esc(g)}</h3><div class="kv">${fs.map(f => `<div title="${esc(f.desc)}">${esc(f.label)}</div><div>${esc(fmt(f.key, c(f.key)))}${f.type === 'num' && c(f.key) != null ? `<span class="pct">${pctRank(f.key, c(f.key))}</span>` : ''}</div>`).join('')}</div></div>`;
   }).join('');
-  const listed = user.listed[i] || {};
   const wasOpen = !d.dataset.for || d.dataset.for === String(i);
   d.dataset.for = i;
   if (!wasOpen) d.classList.remove('sheet-full');
   d.innerHTML = `<div class="sheet-handle" role="button" tabindex="0" aria-label="Expand or collapse details"></div><button class="icon-btn close" aria-label="Close">✕</button>
     <h2>${esc(c('address') || 'Vacant parcel')} · ${fmt('acres', c('acres'))}</h2>
-    ${c('listed') ? `<div class="listing-box"><div><b>${fmt('list_price', c('list_price'))}</b> asking · ${fmt('list_acres', c('list_acres'))} listed${c('list_ppa') ? ` · ${fmt('list_ppa', c('list_ppa'))}/ac` : ''}</div>
+    ${c('list_url') ? `<div class="listing-box"><div><b>${fmt('list_price', c('list_price'))}</b> asking · ${fmt('list_acres', c('list_acres'))} listed${c('list_ppa') ? ` · ${fmt('list_ppa', c('list_ppa'))}/ac` : ''}</div>
       <div class="muted">${esc(c('list_status'))}${c('days_listed') != null ? ` · on market ${nf0.format(c('days_listed'))} days` : ''} · ${esc(c('list_match'))}</div>
       <a class="btn small primary" href="${esc(c('list_url'))}" target="_blank" rel="noopener">View listing on LandSearch ↗</a></div>` : '<div class="listing-box muted">Not currently listed for sale (as of the last listing check).</div>'}
     <div class="sub">${esc(c('nearest_town') || '')} area · ${esc(c('county'))} Co. · ${esc(c('city'))} · ID ${esc(c('gislink'))}<br>Owner: ${esc(c('owner') || '—')}${c('mail_city') ? ` (${esc(c('mail_city'))}, ${esc(c('mail_state'))})` : ''}</div>
@@ -898,10 +903,7 @@ async function renderDetail(i) {
 
     <div class="kv-group"><h3>Skyline from house site (6 m eye height, bare earth)</h3><div id="skyline"></div></div>
     <div class="kv-group"><h3>Research links</h3><div class="links">${links(i)}</div></div>
-    <div class="kv-group"><h3>My notes &amp; listing info</h3>
-      <div class="listing"><input placeholder="Asking price" data-l="price" value="${esc(listed.price || '')}"><input placeholder="Listing URL" data-l="url" value="${esc(listed.url || '')}"></div>
-      <label class="check"><input type="checkbox" data-l="on" ${user.listed[i] ? 'checked' : ''}> Listed for sale</label>
-      ${listed.url ? `<a href="${esc(listed.url)}" target="_blank" rel="noopener">Open listing ↗</a>` : ''}
+    <div class="kv-group"><h3>My notes</h3>
       <textarea placeholder="Notes (saved in this browser)" data-note>${esc(user.notes[i] || '')}</textarea></div>
     ${kvGroups}
     <p class="muted" style="margin-top:14px">Data year: ${c('data_year') || '—'}. Values are screening estimates; verify on site and with the county.</p>`;
@@ -917,12 +919,6 @@ async function renderDetail(i) {
     renderDetail(i);
   };
   d.querySelector('[data-note]').oninput = e => { user.notes[i] = e.target.value; if (!e.target.value) delete user.notes[i]; saveUser(); };
-  d.querySelectorAll('[data-l]').forEach(inp => inp.onchange = () => {
-    const cur = user.listed[i] || {};
-    if (inp.dataset.l === 'on') { if (inp.checked) user.listed[i] = cur; else delete user.listed[i]; }
-    else { cur[inp.dataset.l] = inp.value; user.listed[i] = cur; }
-    saveUser(); renderDetail(i);
-  });
   drawSkyline(i);
 }
 function closeDetail() {
@@ -1021,7 +1017,7 @@ function syncControls() {
   $('#radius-ctl').hidden = state.spatial.mode !== 'radius';
   $('#radius').value = state.spatial.radius; $('#radius-out').textContent = state.spatial.radius;
   $$('#scope button').forEach(b => b.classList.toggle('on', b.dataset.v === state.scope));
-  $('#only-star').checked = state.onlyStar; $('#only-listed').checked = state.onlyListed; $('#show-hidden').checked = state.showHidden;
+  $('#only-star').checked = state.onlyStar; $('#show-hidden').checked = state.showHidden;
   $('#color-by').value = state.colorBy;
   $('#preset').value = PRESETS.some(p => p.id === state.preset) ? state.preset : '';
   if (map) drawRadius();
@@ -1087,42 +1083,9 @@ function columnsDialog() {
   $('#dlg-body').onchange = () => { state.columns = $$('#dlg-body input:checked').map(x => x.value); renderTable(); updateHash(); };
 }
 
-function importDialog() {
-  openDialog(`<h2>Mark parcels as listed for sale</h2>
-    <p class="hint">Paste one per line: a parcel ID (e.g. <code>005 034 01200</code>), a GIS link, or a street address from a listing. Matches are marked “listed” (saved in this browser) so you can filter to them with every other criterion.</p>
-    <textarea id="imp-text" placeholder="053 012 03400&#10;1234 Example Rd"></textarea>
-    <div class="dlg-foot" style="justify-content:flex-start"><button class="btn primary" type="button" id="imp-go">Match &amp; mark</button><span id="imp-res" class="muted"></span></div>`);
-  $('#imp-go').onclick = () => {
-    const norm = s => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const byId = new Map(); const byAddr = new Map();
-    for (let i = 0; i < N; i++) {
-      byId.set(norm(COLS.gislink[i]), i);
-      const a = norm(COLS.address[i]); if (a.length > 4) byAddr.set(a, i);
-    }
-    let hit = 0, miss = [];
-    for (const line of $('#imp-text').value.split(/\n+/).map(s => s.trim()).filter(Boolean)) {
-      const n = norm(line);
-      let i = byId.get(n);
-      if (i == null) for (const [k, v] of byId) if (k.endsWith(n) || n.endsWith(k)) { i = v; break; }
-      if (i == null) {
-        // addresses in CAMA are "ROAD NAME 123"; listings are "123 Road Name" – compare token sets
-        const toks = line.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(t => t.length > 1 && !['RD', 'ROAD', 'DR', 'DRIVE', 'LN', 'LANE', 'TN', 'WAY', 'ST', 'PIKE', 'HWY'].includes(t));
-        for (let j = 0; j < N && i == null; j++) {
-          const a = (COLS.address[j] || '').toUpperCase();
-          if (a && toks.length >= 2 && toks.every(t => a.includes(t))) i = j;
-        }
-      }
-      if (i != null) { user.listed[i] = user.listed[i] || {}; hit++; } else miss.push(line);
-    }
-    saveUser();
-    $('#imp-res').textContent = `Marked ${hit}. ${miss.length ? `Not matched (may be improved/not in candidate set): ${miss.slice(0, 5).join('; ')}${miss.length > 5 ? '…' : ''}` : ''}`;
-    recompute({ keepTable: true });
-  };
-}
-
 function helpDialog() {
   openDialog(`<div class="about"><h2>About this dashboard</h2>
-    <p><b>${nf0.format(N_SALE)}</b> parcels currently listed for sale (LandSearch.com, checked ${esc(META.listings_fetched || '—')}), out of <b>${nf0.format(N)}</b> vacant or listed parcels in Blount, Loudon and northern Monroe counties. Use the <b>For sale / All vacant</b> switch at the top to change which you see. Data built ${META.generated}.</p>
+    <p><b>${nf0.format(N)}</b> land listings for sale in Blount, Loudon and northern Monroe counties (LandSearch.com, checked ${esc(META.listings_fetched || '—')}). Data built ${META.generated}.</p>
     <ul>${META.sources.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
     <h3>How to use it</h3>
     <ul><li>Open <b>Filters</b> (top left) to show or hide the filter panel. <b>Quick filters</b> hold the most-used ones; every other metric is under <b>All filters by topic</b>.</li>
@@ -1131,7 +1094,7 @@ function helpDialog() {
     <li>Click a parcel for its skyline toward the Smokies, research links (assessor, flood map, broadband, listings), notes and listing info.</li>
     <li>Shortlist (★), hide, compare, save searches, share links, and export CSV/GeoJSON.</li></ul>
     <h3>Important caveats</h3>
-    <ul><li>Listings come from LandSearch.com, which aggregates MLS and broker listings. A few listings elsewhere may be missing. Each listing is matched to the parcel under its map point, so a listing spanning several parcels shows on one. You can also mark parcels yourself (“Area &amp; my lists”).</li>
+    <ul><li>Listings come from LandSearch.com, which aggregates MLS and broker listings. A few listings elsewhere may be missing. Each listing is matched to the parcel under its map point, so a listing spanning several parcels shows on one. </li>
     <li>Views use a bare-earth LiDAR model: trees are ignored. Check canopy on imagery.</li>
     <li>Noise is a screening model by road class and distance, with no terrain shielding. Drive times are free-flow (add 10–25% at rush hour).</li>
     <li>Loudon/Monroe assessor attributes are a 2023 snapshot. “Sold since snapshot” flags changed owners. “Structures detected” uses building footprints.</li>
@@ -1166,9 +1129,9 @@ async function download(name, text, type) {
 function toCSV(ids) {
   const keys = ['score', ...CATEGORIES.map(c => 's_' + c.key), ...META.fields.map(f => f.key), 'lat', 'lon'];
   const q = v => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  const head = [...keys, 'shortlisted', 'listed', 'asking_price', 'listing_url', 'notes'];
+  const head = [...keys, 'list_url', 'shortlisted', 'notes'];
   const lines = ids.map(i => [...keys.map(k => (k === 'score' ? Math.round(SCORE[i]) : k.startsWith('s_') ? (SUB[i][k.slice(2)] == null ? '' : Math.round(SUB[i][k.slice(2)])) : COLS[k][i])),
-    user.stars.has(i) ? 1 : 0, user.listed[i] ? 1 : 0, user.listed[i]?.price || '', user.listed[i]?.url || '', user.notes[i] || ''].map(q).join(','));
+    COLS.list_url[i], user.stars.has(i) ? 1 : 0, user.notes[i] || ''].map(q).join(','));
   return [head.join(','), ...lines].join('\n');
 }
 async function doExport(kind) {
@@ -1208,6 +1171,19 @@ function setAllPanels(open) {
   for (const h of $$('#filter-groups .panel-h, #panel-weights .panel-h, #panel-special .panel-h')) h.setAttribute('aria-expanded', open);
   state.openGroups = open ? GROUPS.slice() : []; LS.set('openGroups2', state.openGroups);
   if (open) updateFilterWidgets();
+}
+
+// "Listings as of …" so viewers know how fresh the data is (red once it is more than a week old).
+function showAsOf() {
+  const d = META.listings_fetched || META.generated; if (!d) return;
+  const day = new Date(d + 'T12:00:00');
+  const ago = Math.round((Date.now() - day.getTime()) / 86400000);
+  const when = day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const rel = ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : `${ago} days ago`;
+  const el = $('#asof');
+  el.textContent = `Listings as of ${when} (${rel})`;
+  el.title = `For-sale listings were last checked on ${when}. Prices and status can change daily; confirm on the listing page.`;
+  el.classList.toggle('stale', ago > 7);
 }
 
 // Phone "⋯" menu: everything that lives in the desktop top bar.
@@ -1270,9 +1246,7 @@ function wire() {
   });
   $('#radius').addEventListener('input', e => { state.spatial.radius = +e.target.value; $('#radius-out').textContent = e.target.value; drawRadius(); debounced(); });
   $('#only-star').onchange = e => { state.onlyStar = e.target.checked; recompute(); };
-  $('#only-listed').onchange = e => { state.onlyListed = e.target.checked; recompute(); };
   $('#show-hidden').onchange = e => { state.showHidden = e.target.checked; recompute(); };
-  $('#btn-import').onclick = importDialog;
   $('#btn-saved').onclick = savedDialog;
   $('#btn-help').onclick = helpDialog;
   if (OFFLINE) $('#btn-share').hidden = true;
@@ -1313,7 +1287,6 @@ function wire() {
   $('#btn-show').onclick = () => { setSidebar(false); if (state.tableCollapsed) setTable(true); };
   $('#btn-expand-all').onclick = () => setAllPanels(true);
   $('#btn-collapse-all').onclick = () => setAllPanels(false);
-  $('#scope').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state.scope = b.dataset.v; syncControls(); recompute(); });
   $('#btn-table-toggle').onclick = () => setTable(state.tableCollapsed);
   $('#btn-legend').onclick = () => {
     const ctl = $('#map-ctl'), col = !ctl.classList.contains('collapsed');
@@ -1356,10 +1329,9 @@ async function main() {
     return;
   }
   buildWeights(); buildFilters(); wire(); initMap();
+  showAsOf();
   if (isMobile() || LS.get('sideClosed', false)) setSidebar(false);
   if (LS.get('tableCollapsed', false)) setTable(false);
-  $('#n-sale').textContent = nf0.format(N_SALE); $('#n-all').textContent = nf0.format(N);
-  if (!N_SALE) { state.scope = 'all'; $('#scope').hidden = true; }
   let fromHash = false;
   if (!OFFLINE && location.hash.startsWith('#s=')) { try { deserialize(b64.dec(location.hash.slice(3))); fromHash = true; } catch { /* bad link */ } }
   let selFromLink = null;

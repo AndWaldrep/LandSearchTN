@@ -87,8 +87,6 @@ export const RULES = {
     }],
     ['Total price', 1, r => pw(r.list_price ?? r.land_val, [[30000, 100], [75000, 80], [150000, 55], [300000, 25], [600000, 0]])],
     ['Asking vs. appraisal', 1, r => (r.list_price == null || !r.land_val ? null : pw(r.list_price / r.land_val, [[0.8, 100], [1.2, 80], [2, 50], [4, 15]]))],
-    ['Long-held', 0.5, r => pw(r.years_held, [[0, 30], [10, 60], [25, 90]])],
-    ['Absentee / estate owner', 0.5, r => (r.absentee || r.estate_flag ? 100 : 40)],
   ],
 };
 

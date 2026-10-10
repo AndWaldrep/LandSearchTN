@@ -20,7 +20,6 @@ M2FT = 3.28084
 
 # key, label, group, type, unit, better ('low'|'high'|None), description
 FIELDS = [
-    ("listed", "For sale", "Listing", "bool", "", None, "Has an active, coming-soon or pending listing on LandSearch.com"),
     ("list_price", "Asking price", "Listing", "num", "$", "low", "Listing asking price"),
     ("list_ppa", "Asking $/acre", "Listing", "num", "$", "low", "Asking price divided by listed acres"),
     ("list_acres", "Listed acres", "Listing", "num", "ac", None, "Acreage stated in the listing"),
@@ -44,15 +43,9 @@ FIELDS = [
     ("land_val_per_ac", "Land value / acre", "Value", "num", "$", "low", "Appraised land value per acre"),
     ("last_price", "Last sale price", "Value", "num", "$", None, "Last recorded sale price ($0 = non-market transfer)"),
     ("last_sale_year", "Last sale year", "Value", "num", "", None, "Year of last recorded transfer"),
-    ("years_held", "Years held", "Value", "num", "yr", "high", "Years since last transfer (long-held owners may sell)"),
     ("greenbelt", "Greenbelt", "Value", "bool", "", None, "Enrolled in greenbelt (ag/forest use value) – rollback taxes on development"),
 
-    ("absentee", "Absentee owner", "Ownership", "bool", "", None, "Mailing address outside the county's towns"),
-    ("out_of_state", "Out-of-state owner", "Ownership", "bool", "", None, "Mailing address outside Tennessee"),
-    ("estate_flag", "Estate / heirs / trust", "Ownership", "bool", "", None, "Owner name contains ESTATE, HEIRS, ETAL or TRUST"),
-    ("corp_owner", "Company / developer owner", "Ownership", "bool", "", None, "LLC, INC, developer, builder or investor owner"),
-    ("owner_changed", "Sold since snapshot", "Ownership", "bool", "", None, "Owner differs between 2023 CAMA and current statewide roll (Loudon/Monroe)"),
-    ("bldg_fp", "Structures detected", "Ownership", "num", "", "low", "Building footprints (Overture/MS/Google) inside parcel – may be built since assessment"),
+    ("bldg_fp", "Structures detected", "Parcel", "num", "", "low", "Building footprints (Overture/MS/Google) inside parcel – may be built since assessment"),
 
     ("slope_mean", "Mean slope", "Terrain", "num", "%", "low", "Average slope from 3DEP LiDAR DEM (10 m)"),
     ("slope_p90", "90th pct slope", "Terrain", "num", "%", "low", "Steepest 10% of the parcel"),
@@ -143,6 +136,8 @@ def main():
     d = pd.read_parquet(CACHE / "drivetimes.parquet")
     df = p.merge(t, on="pid").merge(x, on="pid").merge(d, on="pid")
     df = df.sort_values("pid").reset_index(drop=True)
+    # The dashboard shows land that is for sale; the unlisted vacant parcels stay in the cache only.
+    df = df[df["listed"].fillna(False).astype(bool)].reset_index(drop=True)
 
     # unit conversions
     for c in [c for c in df.columns if c.startswith("d_") and c.endswith("_m")]:

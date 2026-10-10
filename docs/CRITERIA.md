@@ -20,7 +20,7 @@ Legend: ✅ automated in the dashboard · 🟡 partially automated / proxy · �
 |---|--------|----------------|-----------------|--------|--------|
 | 1.1 | Vacant (no structures) | You are looking for land to build on | `vacant`: assessor building count = 0 **and** improvement value < $5k **and** no building footprint detected inside the parcel (`bldg_fp`) | County CAMA via TN Comptroller; Overture/Microsoft/Google building footprints | ✅ |
 | 1.2 | Listed for sale | Only listed parcels are easy to buy | `listed`, `list_price`, `list_ppa`, `list_acres`, `days_listed`, `list_status` (active, coming-soon, pending), linked to the listing page. Each listing is matched to the parcel under its map point. You can also mark parcels as listed yourself | LandSearch.com county listings (its robots.txt allows crawling), refreshed each pipeline run | ✅ |
-| 1.3 | Off-market acquisition likelihood | Absentee, estate and long-held owners are more likely to sell when contacted directly | `absentee` (mailing address outside the county), `out_of_state`, `estate_flag` (owner name contains ESTATE/HEIRS/ETAL/TRUST), `years_held` (since last sale), `corp_owner` (LLC/INC/DEVELOPMENT) | CAMA owner and mailing fields | 🟡 |
+| 1.3 | Off-market acquisition likelihood | Absentee, estate and long-held owners can be approached directly | Computed by the pipeline but **not shown**: the dashboard lists only land that is for sale | CAMA owner and mailing fields | — |
 | 1.4 | Ownership changed since snapshot | Loudon/Monroe CAMA is a 2023 snapshot. A newer owner means it sold recently, so it may be built on or not for sale | `owner_changed` (2023 CAMA owner vs. current statewide parcel owner) | TN Property Boundaries (public use) | ✅ |
 | 1.5 | Excluded owners | Public, utility and common-area land is not buyable | Filtered out at build time: USA/TVA/NPS/State/County/City/utility boards/HOA common areas/churches/cemeteries | CAMA owner | ✅ |
 | 1.6 | Size | Room for home, septic field, garden and privacy buffer | `acres` (GIS-calculated) | Parcel polygons | ✅ |
@@ -160,7 +160,7 @@ Every 0–100 sub-score is a transparent piecewise function of the fields above
 
 ## Pre-offer due-diligence checklist (manual)
 
-1. Confirm the listing, asking price and days on market (or contact the owner for off-market parcels).
+1. Confirm the listing, asking price and days on market with the listing agent.
 2. Order a **soil/perc evaluation** (TDEC) if there's no sewer. Make the offer contingent on a septic permit.
 3. Boundary **survey** and title search: easements, right-of-way, landlocked access, mineral rights.
 4. Read the recorded **plat and restrictive covenants** / HOA rules.

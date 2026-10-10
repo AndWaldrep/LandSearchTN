@@ -4,9 +4,8 @@ An open-source (OSINT) dashboard for finding land to build a retirement home in 
 It covers **Loudon, Greenback, Lenoir City, Tellico Village, Vonore, Maryville, Alcoa, Louisville,
 Friendsville, Walland and Townsend**, which is all of Blount and Loudon counties plus northern Monroe.
 
-It shows the **parcels currently listed for sale** (about 480, from LandSearch.com). A switch shows all
-**12,800+ vacant parcels** instead (0.5–500 acres, no structures, public/utility/HOA land removed).
-Every parcel is measured against about 90 criteria:
+It shows the **land currently listed for sale** (about 610 listings, from LandSearch.com). Every
+listing is matched to its county parcel and measured against about 80 criteria:
 
 | Category | What's measured |
 |---|---|
@@ -34,6 +33,15 @@ pick the branch that holds this code and **/ (root)** → Save. The first deploy
 and every push to that branch redeploys. GitHub Pages needs the repository to be **public**, or a
 paid plan (GitHub Pro) for a private one. Either way the published site itself is public.
 
+### Automatic daily refresh
+
+`.github/workflows/refresh-listings.yml` re-runs the whole pipeline every morning (about 6:17 am
+Eastern) on GitHub Actions. It picks up new, sold and price-changed listings and recomputes their
+metrics. If anything changed, it commits `dashboard/data/` and Pages redeploys. The header shows
+**"Listings as of …"**, which turns red if the data is more than a week old (for example, if a run
+failed; GitHub emails the repository owner when a run fails). To refresh right away, open the
+repository's **Actions** tab → **Refresh land listings** → **Run workflow**.
+
 ## Using the dashboard
 
 ```bash
@@ -47,7 +55,7 @@ You can also enable **GitHub Pages** for this repository (branch root). `index.h
 Features:
 
 * **Presets**: Balanced retirement, Smokies-view homesite, Quiet acreage, Close to hospitals, Easy build,
-  Near the lake, Lowest sinkhole/flood risk, Off-market leads.
+  Near the lake, Lowest sinkhole/flood risk.
 * **Every metric is a filter**:
   * Numeric fields get a dual-handle range slider, exact min/max boxes and a crossfilter histogram.
     Gray bars show the whole dataset; blue bars show what passes your *other* filters.
@@ -72,8 +80,7 @@ Features:
 
 * **Listings come from LandSearch.com** (it aggregates MLS and broker listings, and its robots.txt allows
   crawling). Zillow, Realtor.com and LandWatch forbid scraping, so listings only on those sites are missing.
-  Rerun `pipeline/s05_listings.py` and the rest of the pipeline to refresh. In "All vacant" mode, parcels
-  flagged absentee, estate or long-held are candidates for an off-market letter.
+  Rerun `pipeline/run_all.sh` to refresh the listings and every metric.
 * Views use a bare-earth model, so trees are ignored. Noise is a screening model. Drive times are free-flow.
 * Loudon and Monroe assessor attributes are a 2023 snapshot. Blount's are current. Parcels sold since
   the snapshot are flagged.

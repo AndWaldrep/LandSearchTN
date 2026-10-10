@@ -17,6 +17,9 @@ CONTEXT_BBOX = (-84.60, 35.40, -83.35, 36.05)
 # Metric CRS: NAD83 / Tennessee State Plane (meters)
 CRS_M = "EPSG:32136"
 
+# Keep only parcels with a current for-sale listing (much faster refreshes).
+LISTED_ONLY = True
+
 MIN_ACRES = 0.5
 MAX_ACRES = 500
 

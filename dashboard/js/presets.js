@@ -37,10 +37,5 @@ export const PRESETS = [
     weights: W({ hazard: 10, build: 8 }),
     filters: { sinkhole_risk: { values: ['Low'] }, flood_pct: { max: 0 }, wetland_pct: { max: 0 }, sink_on_parcel: { max: 0 } },
   },
-  {
-    id: 'leads', label: 'Off-market leads (all vacant land)', scope: 'all',
-    weights: W({ value: 10, build: 6 }),
-    filters: { bldg_fp: { max: 0 }, acres: { min: 2 }, years_held: { min: 15 }, corp_owner: 'no', owner_changed: 'no' },
-  },
   { id: 'none', label: 'No filters', weights: W(), filters: {} },
 ];

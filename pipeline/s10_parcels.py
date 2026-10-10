@@ -8,7 +8,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from config import (BLOUNT_URL, CACHE, EXCLUDE_CLASSES, EXCLUDE_OWNER_PATTERNS, HNTB_LAYERS, HNTB_URL,
+from config import (LISTED_ONLY, BLOUNT_URL, CACHE, EXCLUDE_CLASSES, EXCLUDE_OWNER_PATTERNS, HNTB_LAYERS, HNTB_URL,
                     MAX_ACRES, MIN_ACRES, STATEWIDE_URL, STUDY_BBOX)
 from util import arcgis_query
 
@@ -247,6 +247,8 @@ def build():
 
     g["acres"] = (g.to_crs(32136).area / 4046.8564).round(3)
     g = g[g["listed"] | g["acres"].between(MIN_ACRES, MAX_ACRES)].copy()
+    if LISTED_ONLY:  # the dashboard shows land for sale; skip metrics for unlisted parcels
+        g = g[g["listed"]].copy()
 
     # Ownership signals
     home_county_city = {"Blount": ["MARYVILLE", "ALCOA", "LOUISVILLE", "FRIENDSVILLE", "TOWNSEND", "WALLAND",

@@ -64,6 +64,8 @@ body.side-closed .main { grid-column: 1 / -1; }
 .brand { flex: 0 0 auto; min-width: 0; }
 .brand h1 { font-size: 16px; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
 .brand .sub { color: var(--muted); font-size: 12px; }
+.asof { display: block; font-size: 12px; color: var(--ink-2); }
+.asof.stale { color: var(--critical); font-weight: 600; }
 .stats { display: flex; gap: 18px; margin-left: auto; }
 .stat { display: flex; flex-direction: column; line-height: 1.15; }
 .stat b { font-size: 16px; font-weight: 650; white-space: nowrap; }
@@ -306,6 +308,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
   .brand { flex: 1; min-width: 0; order: 1; }
   .brand h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand .sub, .top-actions { display: none; }
+  .asof { font-size: 12px; }
   #btn-more-menu { order: 2; width: 40px; height: 40px; align-items: center; justify-content: center; }
   .scope { order: 3; flex: 1 1 100%; display: flex; }
   .scope button { flex: 1; min-height: 40px; white-space: nowrap; font-size: 15px; }

@@ -26,11 +26,8 @@
     </button>
     <div class="brand">
       <h1>East TN Land Finder</h1>
-      <span class="sub">Loudon · Blount · N. Monroe land for a retirement build</span>
-    </div>
-    <div class="seg scope" id="scope" role="group" aria-label="Which parcels">
-      <button data-v="sale" class="on">For sale <span id="n-sale"></span></button>
-      <button data-v="all">All vacant <span id="n-all"></span></button>
+      <span class="sub">Land for sale in Loudon, Blount &amp; N. Monroe, scored for a retirement build</span>
+      <span class="asof" id="asof"></span>
     </div>
     <div class="stats" id="stats"></div>
     <div class="top-actions">
@@ -104,9 +101,7 @@
             <input type="range" id="radius" min="1" max="30" step="0.5" value="5">
           </div>
           <label class="check"><input type="checkbox" id="only-star"> Shortlist only (★)</label>
-          <label class="check"><input type="checkbox" id="only-listed"> Only parcels I marked as listed</label>
           <label class="check"><input type="checkbox" id="show-hidden"> Include parcels I've hidden</label>
-          <button class="btn small" id="btn-import">Paste listing parcel IDs / addresses…</button>
         </div>
       </section>
       <div class="group-label">All filters by topic</div>
