@@ -68,23 +68,30 @@ def arcgis_query(layer_url, where="1=1", out_fields="*", geometry=None, extra=No
     # Use object-id paging: robust for services that cap resultRecordCount.
     ids = http_get(f"{layer_url}/query", {**base, "returnIdsOnly": "true", "f": "json"}, method="POST").json()
     oids = sorted(ids.get("objectIds") or [])
+    def fetch(ids_chunk):
+        """POST the object IDs (no URL-length limit); fall back to short GETs for servers that reject POST."""
+        params = {k: v for k, v in base.items() if k not in ("where", "geometry", "geometryType", "inSR", "spatialRel")}
+        params["objectIds"] = ",".join(map(str, ids_chunk))
+        for attempt in range(3):
+            try:
+                js = http_get(f"{layer_url}/query", params, method="POST").json()
+                if "error" not in js:
+                    return js.get("features", [])
+            except (ValueError, RuntimeError):
+                pass
+            time.sleep(3 * (attempt + 1))
+        out = []
+        for j in range(0, len(ids_chunk), 100):
+            params["objectIds"] = ",".join(map(str, ids_chunk[j:j + 100]))
+            js = http_get(f"{layer_url}/query", params).json()
+            if "error" in js:
+                raise RuntimeError(js["error"])
+            out.extend(js.get("features", []))
+        return out
+
     feats = []
     for i in range(0, len(oids), page):
-        chunk = oids[i:i + page]
-        params = {k: v for k, v in base.items() if k not in ("where", "geometry", "geometryType", "inSR", "spatialRel")}
-        params["objectIds"] = ",".join(map(str, chunk))
-        js = None
-        for attempt in range(4):
-            try:
-                js = http_get(f"{layer_url}/query", params, method="POST" if len(chunk) > 400 else "GET").json()
-                break
-            except ValueError:  # non-JSON error page; retry
-                time.sleep(3 * (attempt + 1))
-        if js is None:
-            raise RuntimeError(f"bad response from {layer_url}")
-        if "error" in js:
-            raise RuntimeError(js["error"])
-        feats.extend(js.get("features", []))
+        feats.extend(fetch(oids[i:i + page]))
         print(f"  {layer_url.split('/')[-3]}: {len(feats)}/{len(oids)}", flush=True)
     rows = []
     geoms = []
