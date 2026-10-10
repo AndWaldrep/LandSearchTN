@@ -34,7 +34,8 @@ let selected = null;
 let compareSet = new Set();
 let map, parcelLayer, radiusCircle, centerMarker;
 const DOM = {};
-const OFFLINE = !!window.LSTN_OFFLINE; // sandboxed host: no third-party tiles, downloads or URL state
+const OFFLINE = !!window.LSTN_OFFLINE;
+const TOUCH = matchMedia('(hover: none)').matches; // sandboxed host: no third-party tiles, downloads or URL state
 const ctxScore = {};
 
 const user = { stars: new Set(LS.get('stars', [])), hidden: new Set(LS.get('hidden', [])), notes: LS.get('notes', {}), listed: LS.get('listed', {}) };
@@ -224,6 +225,7 @@ function valueGetter(key) {
   if (key.startsWith('s_')) { const k = key.slice(2); return i => SUB[i][k]; }
   if (key === 'star') return i => (user.stars.has(i) ? 1 : 0);
   if (key === 'list_link') return i => COLS.list_price[i];
+  if (key === 'near') return i => (DIST ? DIST[i] : null);
   return i => COLS[key][i];
 }
 
@@ -437,6 +439,7 @@ function updateFilterWidgets() {
   }
   const nAct = activeFilters().length + (state.minScore > 0) + (state.spatial.mode !== 'none');
   const badge = $('#filter-count'); badge.hidden = !nAct; badge.textContent = nAct;
+  const tb = $('#tab-filters-n'); if (tb) { tb.hidden = !nAct; tb.textContent = nAct; }
 }
 
 function renderChips() {
@@ -470,6 +473,7 @@ function renderStats() {
     [nf0.format(filtered.filter(i => (COLS.view_smokies[i] || 0) >= 15).length), 'with Smokies view'],
   ].filter((x, j) => sale || j !== 2).map(([b, s_]) => `<div class="stat"><b>${b}</b><span>${s_}</span></div>`).join('');
   $('#btn-show').textContent = `Show ${nf0.format(n)} parcel${n === 1 ? '' : 's'}`;
+  const tc = $('#tab-count'); if (tc) tc.textContent = `(${nf0.format(n)})`;
 }
 
 function colLabel(k) { return k === 'score' ? 'Score' : k === 'list_link' ? 'Listing' : (FIELD[k]?.label ?? k); }
@@ -491,10 +495,76 @@ function renderTable() {
     else txt = esc(txt);
     return `<td class="${left ? 'l' : ''}">${txt}</td>`;
   }).join('')}<td><input type="checkbox" data-cmp="${i}" ${compareSet.has(i) ? 'checked' : ''} aria-label="Compare"></td></tr>`).join('');
+  renderCards();
   $('#table-sub').textContent = `${nf0.format(filtered.length)} matches · sorted by ${colLabel(state.sort.key)}`;
   $('#btn-more').hidden = sortedRows.length <= tableLimit;
   $('#btn-compare').textContent = `Compare (${compareSet.size})`;
   $('#btn-compare').disabled = compareSet.size < 2;
+}
+
+// Phone list: one card per parcel with the facts people decide on first.
+const scoreColor = v => SEQ.map(css)[Math.max(0, Math.min(6, Math.floor((v - 20) / 10)))];
+function renderCards() {
+  const host = $('#cards'); if (!host || !isMobile()) return;
+  const rows = sortedRows.slice(0, tableLimit);
+  if (!rows.length) {
+    host.innerHTML = state.onlyStar
+      ? `<p class="empty">Your shortlist is empty.<br>Tap <b>☆ Save</b> on any parcel to keep it here.</p>`
+      : `<p class="empty">No parcels match. Open <b>Filters</b> and loosen a filter, or tap <b>Reset</b>.</p>`;
+    return;
+  }
+  const chip = (txt, cls = '') => `<span class="chip-s ${cls}">${esc(txt)}</span>`;
+  host.innerHTML = rows.map(i => {
+    const c = k => COLS[k][i];
+    const listed = c('listed');
+    const chips = [
+      c('view_smokies') != null ? chip(`Smokies ${Math.round(c('view_smokies'))}%`, c('view_smokies') >= 15 ? 'good' : '') : '',
+      chip(`Slope ${fmt('slope_mean', c('slope_mean'))}`, c('slope_mean') > 20 ? 'bad' : ''),
+      chip(`ER ${fmt('dt_ed_min', c('dt_ed_min'))}`),
+      c('sinkhole_risk') ? chip(`Sinkhole ${c('sinkhole_risk').toLowerCase()}`, c('sinkhole_risk') === 'High' ? 'bad' : c('sinkhole_risk') === 'Low' ? 'good' : '') : '',
+      c('flood_pct') > 0 ? chip(`${Math.round(c('flood_pct'))}% flood zone`, 'bad') : '',
+      c('list_status') && c('list_status') !== 'active' ? chip(c('list_status'), 'bad') : '',
+      DIST && DIST[i] != null ? chip(`${nf1.format(DIST[i])} mi away`) : '',
+    ].join('');
+    const head = listed ? `${fmt('list_price', c('list_price'))}` : `${fmt('land_val', c('land_val'))} <small class="muted">appraised</small>`;
+    return `<article class="card${i === selected ? ' is-sel' : ''}" data-i="${i}">
+      <div><div class="price">${head}</div></div>
+      <div class="score" style="background:${scoreColor(SCORE[i])}" title="Overall score">${Math.round(SCORE[i])}</div>
+      <div class="meta">${fmt('acres', c('acres'))}${listed && c('list_ppa') ? ` · ${fmt('list_ppa', c('list_ppa'))}/ac` : ''} · ${esc(c('nearest_town') || c('county'))}${listed && c('days_listed') != null ? ` · ${nf0.format(c('days_listed'))} days listed` : ''}</div>
+      <div class="chips-row">${chips}</div>
+      <div class="row-actions">
+        <button type="button" data-act="map">Show on map</button>
+        <button type="button" data-act="star" class="${user.stars.has(i) ? 'on' : ''}">${user.stars.has(i) ? '★ Saved' : '☆ Save'}</button>
+        ${c('list_url') ? `<a href="${esc(c('list_url'))}" target="_blank" rel="noopener">Listing ↗</a>` : ''}
+      </div></article>`;
+  }).join('') + (sortedRows.length > tableLimit ? `<button class="btn more" type="button" data-act="more">Show more (${nf0.format(sortedRows.length - tableLimit)} left)</button>` : '');
+}
+
+// Phone views: map or list, chosen from the bottom tab bar.
+function setView(v) {
+  document.body.classList.toggle('view-map', v === 'map');
+  document.body.classList.toggle('view-list', v === 'list');
+  state.view = v;
+  $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === (v === 'list' && state.onlyStar ? 'star' : v)));
+  if (v === 'map') setTimeout(() => { map.invalidateSize(); parcelLayer.redraw(); }, 30);
+  else renderCards();
+}
+
+// "Near me": the phone's location (asked for only when the viewer taps a Near-me control).
+let DIST = null, meLayer = null;
+function locateMe(then) {
+  if (!navigator.geolocation) { toast('Location is not available in this browser'); return; }
+  toast('Finding your location…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: la, longitude: lo, accuracy } = pos.coords;
+    const kx = Math.cos(la * Math.PI / 180) * 69.17, ky = 69.05;
+    DIST = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const dx = (COLS.lon[i] - lo) * kx, dy = (COLS.lat[i] - la) * ky; DIST[i] = Math.hypot(dx, dy); }
+    if (meLayer) meLayer.remove();
+    meLayer = L.layerGroup([L.circle([la, lo], { radius: accuracy, weight: 1, color: '#2a78d6', fillOpacity: 0.08, interactive: false }),
+      L.circleMarker([la, lo], { radius: 8, color: '#fff', weight: 3, fillColor: '#2a78d6', fillOpacity: 1, interactive: false })]).addTo(map);
+    then && then([la, lo]);
+  }, err => toast(err.code === 1 ? 'Location permission was denied' : 'Could not get your location'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -584,11 +654,21 @@ function initMap() {
     if (state.spatial.mode === 'radius' && (!state.spatial.center || e.originalEvent.shiftKey || !parcelLayer.pick(e.containerPoint))) {
       state.spatial.center = [e.latlng.lat, e.latlng.lng]; drawRadius(); recompute(); return;
     }
-    const i = parcelLayer.pick(e.containerPoint);
+    const i = parcelLayer.pick(e.containerPoint, TOUCH ? 22 : 9);
     if (i != null) select(i, false);
   });
+  // locate-me control
+  const Locate = L.Control.extend({ options: { position: 'topleft' }, onAdd() {
+    const a = L.DomUtil.create('a', 'locate-btn leaflet-bar-part'); a.href = '#'; a.title = 'Show my location'; a.setAttribute('role', 'button');
+    a.setAttribute('aria-label', 'Show my location'); a.innerHTML = '&#9678;';
+    const bar = L.DomUtil.create('div', 'leaflet-bar'); bar.appendChild(a);
+    L.DomEvent.on(a, 'click', ev => { L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev); locateMe(ll => { map.flyTo(ll, Math.max(map.getZoom(), 12)); renderCards(); }); });
+    return bar;
+  } });
+  new Locate().addTo(map);
   let hoverT;
   map.on('mousemove', e => {
+    if (TOUCH) return;
     clearTimeout(hoverT);
     hoverT = setTimeout(() => {
       const i = parcelLayer.pick(e.containerPoint);
@@ -691,11 +771,13 @@ function drawRadius() {
 // ---------------------------------------------------------------------------------------------
 function select(i, fly = true) {
   selected = i;
+  if (isMobile() && state.view !== 'map') setView('map');
   renderDetail(i);
   highlight(i);
   if (fly) focusParcel(i);
   parcelLayer.redraw();
   $$('#results tbody tr').forEach(tr => tr.classList.toggle('is-sel', +tr.dataset.i === i));
+  $$('#cards .card').forEach(el => el.classList.toggle('is-sel', +el.dataset.i === i));
 }
 
 // Selected parcel: bold outline + pulsing ring at the house site, drawn above everything else.
@@ -792,21 +874,28 @@ async function renderDetail(i) {
     return `<div class="kv-group"><h3>${esc(g)}</h3><div class="kv">${fs.map(f => `<div title="${esc(f.desc)}">${esc(f.label)}</div><div>${esc(fmt(f.key, c(f.key)))}${f.type === 'num' && c(f.key) != null ? `<span class="pct">${pctRank(f.key, c(f.key))}</span>` : ''}</div>`).join('')}</div></div>`;
   }).join('');
   const listed = user.listed[i] || {};
-  d.innerHTML = `<button class="icon-btn close" aria-label="Close">✕</button>
+  const wasOpen = !d.dataset.for || d.dataset.for === String(i);
+  d.dataset.for = i;
+  if (!wasOpen) d.classList.remove('sheet-full');
+  d.innerHTML = `<div class="sheet-handle" role="button" tabindex="0" aria-label="Expand or collapse details"></div><button class="icon-btn close" aria-label="Close">✕</button>
     <h2>${esc(c('address') || 'Vacant parcel')} · ${fmt('acres', c('acres'))}</h2>
     ${c('listed') ? `<div class="listing-box"><div><b>${fmt('list_price', c('list_price'))}</b> asking · ${fmt('list_acres', c('list_acres'))} listed${c('list_ppa') ? ` · ${fmt('list_ppa', c('list_ppa'))}/ac` : ''}</div>
       <div class="muted">${esc(c('list_status'))}${c('days_listed') != null ? ` · on market ${nf0.format(c('days_listed'))} days` : ''} · ${esc(c('list_match'))}</div>
       <a class="btn small primary" href="${esc(c('list_url'))}" target="_blank" rel="noopener">View listing on LandSearch ↗</a></div>` : '<div class="listing-box muted">Not currently listed for sale (as of the last listing check).</div>'}
     <div class="sub">${esc(c('nearest_town') || '')} area · ${esc(c('county'))} Co. · ${esc(c('city'))} · ID ${esc(c('gislink'))}<br>Owner: ${esc(c('owner') || '—')}${c('mail_city') ? ` (${esc(c('mail_city'))}, ${esc(c('mail_state'))})` : ''}</div>
     <div class="flags">${flags.join('')}</div>
-    <div class="score-big"><b>${Math.round(SCORE[i])}</b><span class="muted">overall score · rank ${nf0.format(sortedByScoreRank(i))} of ${nf0.format(filtered.length)} matches</span></div>
-    <div class="subscores">${CATEGORIES.map(cat => `<span title="${esc(explain(ROWS[i], ctxScore, cat.key).map(e => `${e.label}: ${e.v == null ? '—' : Math.round(e.v)}`).join('\n'))}">${cat.label}</span><div class="bar"><i style="width:${Math.round(sub[cat.key] ?? 0)}%"></i></div><output>${sub[cat.key] == null ? '—' : Math.round(sub[cat.key])}</output>`).join('')}</div>
     <div class="actions">
       <button class="btn small ${user.stars.has(i) ? 'on' : ''}" data-act="star">${user.stars.has(i) ? '★ Shortlisted' : '☆ Shortlist'}</button>
       <button class="btn small" data-act="hide">${user.hidden.has(i) ? 'Unhide' : 'Hide'}</button>
-      <button class="btn small" data-act="cmp">${compareSet.has(i) ? 'Remove from compare' : 'Add to compare'}</button>
+      <button class="btn small hide-phone" data-act="cmp">${compareSet.has(i) ? 'Remove from compare' : 'Add to compare'}</button>
       <button class="btn small" data-act="zoom">Show on map</button>
+      <a class="btn small" href="https://maps.apple.com/?daddr=${c('lat')},${c('lon')}&dirflg=d" target="_blank" rel="noopener">Directions (Apple)</a>
+      <a class="btn small" href="https://www.google.com/maps/dir/?api=1&destination=${c('lat')},${c('lon')}" target="_blank" rel="noopener">Directions (Google)</a>
+      <button class="btn small" data-act="share">Share this parcel</button>
     </div>
+    <div class="score-big"><b>${Math.round(SCORE[i])}</b><span class="muted">overall score · rank ${nf0.format(sortedByScoreRank(i))} of ${nf0.format(filtered.length)} matches</span></div>
+    <div class="subscores">${CATEGORIES.map(cat => `<span title="${esc(explain(ROWS[i], ctxScore, cat.key).map(e => `${e.label}: ${e.v == null ? '—' : Math.round(e.v)}`).join('\n'))}">${cat.label}</span><div class="bar"><i style="width:${Math.round(sub[cat.key] ?? 0)}%"></i></div><output>${sub[cat.key] == null ? '—' : Math.round(sub[cat.key])}</output>`).join('')}</div>
+
     <div class="kv-group"><h3>Skyline from house site (6 m eye height, bare earth)</h3><div id="skyline"></div></div>
     <div class="kv-group"><h3>Research links</h3><div class="links">${links(i)}</div></div>
     <div class="kv-group"><h3>My notes &amp; listing info</h3>
@@ -816,13 +905,15 @@ async function renderDetail(i) {
       <textarea placeholder="Notes (saved in this browser)" data-note>${esc(user.notes[i] || '')}</textarea></div>
     ${kvGroups}
     <p class="muted" style="margin-top:14px">Data year: ${c('data_year') || '—'}. Values are screening estimates; verify on site and with the county.</p>`;
-  d.querySelector('.close').onclick = () => { d.hidden = true; selected = null; clearHighlight(); parcelLayer.redraw(); };
+  d.querySelector('.close').onclick = () => closeDetail();
+  wireSheet(d);
   d.querySelector('.actions').onclick = e => {
     const a = e.target.dataset.act; if (!a) return;
     if (a === 'star') toggleStar(i);
     if (a === 'hide') { user.hidden.has(i) ? user.hidden.delete(i) : user.hidden.add(i); saveUser(); recompute({ keepTable: true }); }
     if (a === 'cmp') { compareSet.has(i) ? compareSet.delete(i) : compareSet.add(i); renderTable(); }
-    if (a === 'zoom') focusParcel(i);
+    if (a === 'zoom') { if (isMobile()) d.classList.remove('sheet-full'); focusParcel(i); }
+    if (a === 'share') { shareUrl(location.href.split('#')[0] + '#s=' + b64.enc({ ...serialize(), sel: COLS.gislink[i] }), `${c('address') || 'Parcel'} · ${fmt('acres', c('acres'))}`); return; }
     renderDetail(i);
   };
   d.querySelector('[data-note]').oninput = e => { user.notes[i] = e.target.value; if (!e.target.value) delete user.notes[i]; saveUser(); };
@@ -834,6 +925,40 @@ async function renderDetail(i) {
   });
   drawSkyline(i);
 }
+function closeDetail() {
+  const d = DOM.detail; d.hidden = true; d.classList.remove('sheet-full'); d.style.removeProperty('--sheet-h'); delete d.dataset.for;
+  selected = null; clearHighlight(); parcelLayer.redraw();
+  $$('#cards .card.is-sel').forEach(el => el.classList.remove('is-sel'));
+}
+// Bottom sheet on phones: tap the handle to expand/collapse, drag it to resize or swipe down to close.
+function wireSheet(d) {
+  const h = d.querySelector('.sheet-handle'); if (!h) return;
+  h.onclick = () => { d.classList.toggle('sheet-full'); d.style.removeProperty('--sheet-h'); };
+  let y0 = null, h0 = 0;
+  h.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; h0 = d.getBoundingClientRect().height; d.classList.add('dragging'); }, { passive: true });
+  h.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    e.preventDefault();
+    const nh = Math.max(80, Math.min(window.innerHeight * 0.92, h0 + (y0 - e.touches[0].clientY)));
+    d.style.setProperty('--sheet-h', nh + 'px');
+  }, { passive: false });
+  h.addEventListener('touchend', e => {
+    if (y0 == null) return;
+    const dy = e.changedTouches[0].clientY - y0; y0 = null;
+    d.classList.remove('dragging'); d.style.removeProperty('--sheet-h');
+    if (Math.abs(dy) < 8) return;                                   // a tap: handled by click
+    if (dy > 0 && !d.classList.contains('sheet-full') && dy > 80) closeDetail();
+    else d.classList.toggle('sheet-full', dy < 0);
+  });
+}
+async function shareUrl(url, title) {
+  if (navigator.share && TOUCH) {
+    try { await navigator.share({ title: title || 'East TN Land Finder', url }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast('Link copied'); }
+  catch { openDialog(`<h2>Share link</h2><textarea readonly>${esc(url)}</textarea>`); }
+}
+
 function sortedByScoreRank(i) { let r = 1; const s = SCORE[i]; for (const j of filtered) if (SCORE[j] > s) r++; return r; }
 function pctRank(key, v) {
   const f = FIELD[key]; if (!f.better) return '';
@@ -1085,6 +1210,28 @@ function setAllPanels(open) {
   if (open) updateFilterWidgets();
 }
 
+// Phone "⋯" menu: everything that lives in the desktop top bar.
+function moreMenu() {
+  const theme = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  openDialog(`<h2>Options</h2><div class="more-list">
+    <label for="m-preset" class="muted">Start from a preset</label>
+    <select id="m-preset">${PRESETS.map(p => `<option value="${p.id}" ${p.id === state.preset ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}${PRESETS.some(p => p.id === state.preset) ? '' : '<option selected disabled>Custom</option>'}</select>
+    ${OFFLINE ? '' : '<button class="btn" type="button" data-m="share">Share this search…</button>'}
+    <button class="btn" type="button" data-m="saved">Saved searches</button>
+    <button class="btn" type="button" data-m="csv">Export results (CSV)</button>
+    <button class="btn" type="button" data-m="theme">${theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
+    <button class="btn" type="button" data-m="help">About this data</button></div>`);
+  $('#m-preset').onchange = e => { applyPreset(e.target.value); $('#dlg').close(); toast('Preset applied'); };
+  $('#dlg-body').onclick = e => {
+    const m = e.target.dataset.m; if (!m) return;
+    if (m === 'share') { $('#dlg').close(); $('#btn-share').click(); }
+    if (m === 'saved') savedDialog();
+    if (m === 'csv') { $('#dlg').close(); doExport('csv'); }
+    if (m === 'theme') { $('#btn-theme').click(); $('#dlg').close(); }
+    if (m === 'help') helpDialog();
+  };
+}
+
 let debT;
 function debounced() { clearTimeout(debT); debT = setTimeout(() => recompute(), 120); }
 
@@ -1129,10 +1276,7 @@ function wire() {
   $('#btn-saved').onclick = savedDialog;
   $('#btn-help').onclick = helpDialog;
   if (OFFLINE) $('#btn-share').hidden = true;
-  $('#btn-share').onclick = async () => {
-    const url = location.href.split('#')[0] + '#s=' + b64.enc(serialize());
-    try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { openDialog(`<h2>Share link</h2><textarea readonly>${esc(url)}</textarea>`); }
-  };
+  $('#btn-share').onclick = () => shareUrl(location.href.split('#')[0] + '#s=' + b64.enc(serialize()), 'East TN Land Finder search');
   $('#btn-export').onclick = e => { e.stopPropagation(); $('#export-menu').hidden = !$('#export-menu').hidden; };
   $('#export-menu').onclick = e => { const k = e.target.dataset.exp; if (k) { doExport(k); $('#export-menu').hidden = true; } };
   document.addEventListener('click', () => { $('#export-menu').hidden = true; });
@@ -1142,6 +1286,28 @@ function wire() {
     document.documentElement.dataset.theme = next; LS.set('theme', next); renderLegend(); parcelLayer.redraw(); restyleVectors();
   };
   $('#btn-filters').onclick = () => setSidebar(!sidebarOpen());
+  $('#tabbar').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const t = b.dataset.tab;
+    if (t === 'filters') { setSidebar(true); return; }
+    if (t === 'star') { state.onlyStar = true; syncControls(); recompute({ keepTable: true }); setView('list'); if (!user.stars.size) toast('Tap ☆ Save on a parcel to add it to your shortlist'); return; }
+    if (state.onlyStar) { state.onlyStar = false; syncControls(); recompute({ keepTable: true }); }
+    setView(t);
+  });
+  $('#cards').addEventListener('click', e => {
+    const card = e.target.closest('.card'); const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'more') { tableLimit += 100; renderCards(); return; }
+    if (!card || e.target.closest('a')) return;
+    const i = +card.dataset.i;
+    if (act === 'star') { toggleStar(i); return; }
+    select(i);
+  });
+  $('#m-sort-by').onchange = e => {
+    const [key, dir] = e.target.value.split(':');
+    const go = () => { state.sort = { key, dir: +dir }; sortRows(); tableLimit = 150; renderTable(); $('.table-scroll').scrollTop = 0; };
+    if (key === 'near' && !DIST) locateMe(go); else go();
+  };
+  $('#btn-more-menu').onclick = moreMenu;
   $('#btn-close-side').onclick = () => setSidebar(false);
   $('#backdrop').onclick = () => setSidebar(false);
   $('#btn-show').onclick = () => { setSidebar(false); if (state.tableCollapsed) setTable(true); };
@@ -1179,7 +1345,7 @@ function wire() {
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && isMobile() && sidebarOpen()) { setSidebar(false); return; }
-    if (e.key === 'Escape' && !DOM.detail.hidden && !$('#dlg').open) { DOM.detail.hidden = true; selected = null; clearHighlight(); parcelLayer.redraw(); }
+    if (e.key === 'Escape' && !DOM.detail.hidden && !$('#dlg').open) closeDetail();
   });
 }
 
@@ -1196,7 +1362,11 @@ async function main() {
   if (!N_SALE) { state.scope = 'all'; $('#scope').hidden = true; }
   let fromHash = false;
   if (!OFFLINE && location.hash.startsWith('#s=')) { try { deserialize(b64.dec(location.hash.slice(3))); fromHash = true; } catch { /* bad link */ } }
+  let selFromLink = null;
+  if (fromHash) { try { selFromLink = b64.dec(location.hash.slice(3)).sel; } catch { /* ignore */ } }
   if (fromHash) { syncControls(); recompute(); } else applyPreset('balanced');
+  if (isMobile()) { setView('map'); $('#btn-legend').click(); }   // phones start with the legend folded away
+  if (selFromLink) { const i = COLS.gislink.indexOf(selFromLink); if (i >= 0) setTimeout(() => select(i), 300); }
   $('#loading').remove();
 }
 main();

@@ -1,0 +1,14 @@
+{
+  "name": "East TN Land Finder",
+  "short_name": "Land Finder",
+  "description": "Land for sale around Loudon, Maryville, Greenback and Louisville, scored for a retirement build.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fcfcfb",
+  "theme_color": "#2a78d6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -115,13 +115,13 @@ export const ParcelCanvas = L.Layer.extend({
       }
     }
   },
-  pick(pt) {
+  pick(pt, tol = 9) {
     // polygons first (zoomed in), topmost = last drawn
     for (let j = this._polys.length - 1; j >= 0; j--) {
       const [k, rings] = this._polys[j];
       if (rings.some(ring => inside(pt, ring))) return this._rows[k];
     }
-    let best = -1, bd = 81;
+    let best = -1, bd = tol * tol;
     for (let k = 0; k < this._rows.length; k++) {
       const dx = this._xs[k] - pt.x, dy = this._ys[k] - pt.y;
       const d = dx * dx + dy * dy;
