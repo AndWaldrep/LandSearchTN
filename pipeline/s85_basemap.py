@@ -103,7 +103,11 @@ def feature(geom, **props):
     return {"type": "Feature", "properties": props, "geometry": geom.__geo_interface__}
 
 
-def main():
+def main(force=False):
+    files = ["relief_region.jpg", "relief_study.jpg", "slope.png", "vectors.json", "overlays.json", "meta.json"]
+    if not force and all((BM / f).exists() for f in files):
+        print("basemap already built (terrain, roads and water rarely change); use --force to rebuild")
+        return
     meta = {}
     z, g, b = warp(CACHE / "dem30.tif", CONTEXT_BBOX, 45)
     Image.fromarray(relief(z, g)).save(BM / "relief_region.jpg", quality=82, optimize=True)
@@ -159,4 +163,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(force="--force" in sys.argv)

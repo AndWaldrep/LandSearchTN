@@ -8,3 +8,4 @@ pandas>=2.2
 requests>=2.32
 overturemaps>=0.10
 pyarrow>=16
+pillow>=10
